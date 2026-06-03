@@ -27,61 +27,135 @@ class Support_Portal_Ingest {
 	}
 
 	public function handle_submit( WP_REST_Request $request ) {
-		// ── 1. Verify WordPress REST nonce (CSRF protection for all users) ────
-		$nonce = $request->get_header( 'X-WP-Nonce' );
-		if ( ! $nonce || ! wp_verify_nonce( $nonce, 'wp_rest' ) ) {
-			return new WP_Error( 'rest_forbidden', __( 'Invalid or missing nonce.', 'support-portal' ), array( 'status' => 403 ) );
-		}
+		try {
+			error_log( '[SupportPortal] handle_submit called — ' . $request->get_method() . ' ' . $request->get_route() );
 
-		// ── 2. Retrieve portal config (API key never sent to client) ──────────
-		$settings = Support_Portal_Settings::get_settings();
-		$api_url  = $settings['api_url'];
-		$api_key  = Support_Portal_Settings::decrypt_key( $settings['api_key'] );
+			// ── 1. Verify WordPress REST nonce (CSRF protection for all users) ──
+			$nonce = $request->get_header( 'X-WP-Nonce' );
+			if ( ! $nonce || ! wp_verify_nonce( $nonce, 'wp_rest' ) ) {
+				error_log( '[SupportPortal] nonce check failed — nonce present: ' . ( $nonce ? 'yes' : 'no' ) );
+				return new WP_Error(
+					'rest_forbidden',
+					__( 'Invalid or missing nonce.', 'support-portal' ),
+					array( 'status' => 403 )
+				);
+			}
+			error_log( '[SupportPortal] nonce OK' );
 
-		if ( empty( $api_url ) || empty( $api_key ) ) {
+			// ── 2. Confirm plugin is configured ────────────────────────────────
+			$settings = Support_Portal_Settings::get_settings();
+			$api_url  = $settings['api_url'];
+			$api_key  = Support_Portal_Settings::decrypt_key( $settings['api_key'] );
+
+			if ( empty( $api_url ) ) {
+				error_log( '[SupportPortal] misconfigured — API URL is empty' );
+				return new WP_Error(
+					'misconfigured',
+					__( 'Support Portal: Portal API URL is not configured. Go to Settings → Support Portal and add the URL.', 'support-portal' ),
+					array( 'status' => 500 )
+				);
+			}
+
+			if ( empty( $api_key ) ) {
+				error_log( '[SupportPortal] misconfigured — API key is empty (stored value: ' . ( empty( $settings['api_key'] ) ? 'not set' : 'set but decrypts to empty' ) . ')' );
+				return new WP_Error(
+					'misconfigured',
+					__( 'Support Portal: API Key is not configured. Go to Settings → Support Portal and add the key.', 'support-portal' ),
+					array( 'status' => 500 )
+				);
+			}
+
+			error_log( '[SupportPortal] config OK — posting to: ' . $api_url );
+
+			// ── 3. Parse request body ───────────────────────────────────────────
+			$body = $request->get_json_params();
+			if ( ! is_array( $body ) ) {
+				error_log( '[SupportPortal] bad request — body is not a JSON object (raw length: ' . strlen( $request->get_body() ) . ')' );
+				return new WP_Error(
+					'bad_request',
+					__( 'Invalid JSON body.', 'support-portal' ),
+					array( 'status' => 400 )
+				);
+			}
+
+			// Log field presence (never log the screenshot itself — too large).
+			error_log( sprintf(
+				'[SupportPortal] body fields: title=%s description=%s email=%s name=%s page_url=%s screenshot=%s',
+				isset( $body['title'] )               ? 'yes' : 'no',
+				isset( $body['description'] )          ? 'yes' : 'no',
+				isset( $body['submitter_email'] )      ? 'yes' : 'no',
+				isset( $body['submitter_name'] )       ? 'yes' : 'no',
+				isset( $body['page_url'] )             ? 'yes' : 'no',
+				isset( $body['annotated_screenshot'] ) ? 'yes (' . strlen( $body['annotated_screenshot'] ) . ' chars)' : 'no'
+			) );
+
+			// ── 4. Forward to portal API ────────────────────────────────────────
+			$response = wp_remote_post(
+				$api_url,
+				array(
+					'headers'   => array(
+						'Content-Type' => 'application/json',
+						'x-api-key'    => $api_key,
+					),
+					'body'      => wp_json_encode( $body ),
+					'timeout'   => 30,
+					'sslverify' => true,
+				)
+			);
+
+			// ── 5. Handle transport-level errors (DNS failure, timeout, etc.) ───
+			if ( is_wp_error( $response ) ) {
+				$msg = $response->get_error_message();
+				error_log( '[SupportPortal] wp_remote_post transport error: ' . $msg );
+				return new WP_Error(
+					'upstream_error',
+					sprintf( __( 'Support Portal: Could not reach the portal API (%s).', 'support-portal' ), $msg ),
+					array( 'status' => 502 )
+				);
+			}
+
+			// ── 6. Log and return upstream response ─────────────────────────────
+			$http_code     = (int) wp_remote_retrieve_response_code( $response );
+			$upstream_body = wp_remote_retrieve_body( $response );
+
+			// Truncate large bodies in the log (screenshots can be megabytes).
+			$log_body = strlen( $upstream_body ) > 500
+				? substr( $upstream_body, 0, 500 ) . '… [truncated, total ' . strlen( $upstream_body ) . ' bytes]'
+				: $upstream_body;
+
+			error_log( '[SupportPortal] upstream response — HTTP ' . $http_code . ' — body: ' . $log_body );
+
+			$data = json_decode( $upstream_body, true );
+			if ( ! is_array( $data ) ) {
+				$data = array( 'raw' => $upstream_body );
+			}
+
+			// Surface upstream errors as WP_Error so the JS fetch sees a non-2xx
+			// status and displays the portal's own error message.
+			if ( $http_code >= 400 ) {
+				$upstream_message = isset( $data['error'] ) ? $data['error']
+					: ( isset( $data['message'] ) ? $data['message']
+					: 'Portal returned HTTP ' . $http_code );
+
+				error_log( '[SupportPortal] upstream error: ' . $upstream_message );
+
+				return new WP_Error(
+					'upstream_' . $http_code,
+					$upstream_message,
+					array( 'status' => $http_code >= 500 ? 502 : $http_code )
+				);
+			}
+
+			return new WP_REST_Response( $data, $http_code );
+
+		} catch ( Throwable $e ) {
+			error_log( '[SupportPortal] uncaught exception in handle_submit: ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine() );
 			return new WP_Error(
-				'misconfigured',
-				__( 'The Support Portal plugin is not configured. Please set the API URL and Key under Settings → Support Portal.', 'support-portal' ),
+				'internal_error',
+				sprintf( __( 'Support Portal internal error: %s', 'support-portal' ), $e->getMessage() ),
 				array( 'status' => 500 )
 			);
 		}
-
-		// ── 3. Parse and forward request body ─────────────────────────────────
-		$body = $request->get_json_params();
-		if ( ! is_array( $body ) ) {
-			return new WP_Error( 'bad_request', __( 'Invalid JSON body.', 'support-portal' ), array( 'status' => 400 ) );
-		}
-
-		$response = wp_remote_post(
-			$api_url,
-			array(
-				'headers'   => array(
-					'Content-Type' => 'application/json',
-					'x-api-key'    => $api_key,
-				),
-				'body'      => wp_json_encode( $body ),
-				'timeout'   => 30,
-				'sslverify' => true,
-			)
-		);
-
-		if ( is_wp_error( $response ) ) {
-			return new WP_Error(
-				'upstream_error',
-				$response->get_error_message(),
-				array( 'status' => 502 )
-			);
-		}
-
-		$http_code     = (int) wp_remote_retrieve_response_code( $response );
-		$upstream_body = wp_remote_retrieve_body( $response );
-		$data          = json_decode( $upstream_body, true );
-
-		if ( ! is_array( $data ) ) {
-			$data = array( 'raw' => $upstream_body );
-		}
-
-		return new WP_REST_Response( $data, $http_code );
 	}
 
 	// ── Asset enqueueing ────────────────────────────────────────────────────────
