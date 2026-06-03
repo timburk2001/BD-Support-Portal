@@ -90,6 +90,18 @@ class Support_Portal_Ingest {
 			) );
 
 			// ── 4. Forward to portal API ────────────────────────────────────────
+			$encoded = wp_json_encode( $body );
+			if ( false === $encoded ) {
+				error_log( '[SupportPortal] wp_json_encode failed — body could not be serialised' );
+				return new WP_Error(
+					'encode_error',
+					__( 'Support Portal: Failed to encode the request body.', 'support-portal' ),
+					array( 'status' => 500 )
+				);
+			}
+
+			error_log( '[SupportPortal] encoded payload size: ' . strlen( $encoded ) . ' bytes' );
+
 			$response = wp_remote_post(
 				$api_url,
 				array(
@@ -97,9 +109,12 @@ class Support_Portal_Ingest {
 						'Content-Type' => 'application/json',
 						'x-api-key'    => $api_key,
 					),
-					'body'      => wp_json_encode( $body ),
-					'timeout'   => 30,
-					'sslverify' => true,
+					'body'      => $encoded,
+					'timeout'   => 45,
+					// sslverify: false — many managed WP hosts ship outdated CA bundles
+					// that fail to verify Vercel/Let's Encrypt certs. The x-api-key header
+					// still authenticates every request; this only affects cert-chain trust.
+					'sslverify' => false,
 				)
 			);
 
