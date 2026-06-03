@@ -10,7 +10,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { Button } from '@/components/ui/button'
+import { buttonVariants } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/browser'
 
 interface TopNavProps {
@@ -56,17 +57,24 @@ export function TopNav({ email }: TopNavProps) {
           </div>
 
           <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="sm" className="text-sm">
-                {email}
-              </Button>
+            {/* Base UI Menu.Trigger renders as a plain button — apply button styles via className */}
+            <DropdownMenuTrigger
+              className={cn(
+                buttonVariants({ variant: 'ghost', size: 'sm' }),
+                'text-sm max-w-[180px] truncate',
+              )}
+            >
+              {email}
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-48">
-              <DropdownMenuItem className="text-xs text-muted-foreground" disabled>
+            <DropdownMenuContent align="end" className="w-52">
+              <DropdownMenuItem className="text-xs text-muted-foreground cursor-default" disabled>
                 {email}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={handleLogout} className="text-destructive">
+              <DropdownMenuItem
+                onClick={handleLogout}
+                className="text-destructive focus:text-destructive cursor-pointer"
+              >
                 Sign out
               </DropdownMenuItem>
             </DropdownMenuContent>

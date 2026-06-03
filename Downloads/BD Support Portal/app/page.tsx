@@ -1,5 +1,6 @@
 import Link from 'next/link'
-import { Button } from '@/components/ui/button'
+import { buttonVariants } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 
 export default function LandingPage() {
   return (
@@ -14,12 +15,12 @@ export default function LandingPage() {
           </p>
         </div>
         <div className="flex gap-3 justify-center">
-          <Button asChild>
-            <Link href="/login">Sign in</Link>
-          </Button>
-          <Button variant="outline" asChild>
-            <Link href="/signup">Create account</Link>
-          </Button>
+          <Link href="/login" className={cn(buttonVariants({ variant: 'default' }))}>
+            Sign in
+          </Link>
+          <Link href="/signup" className={cn(buttonVariants({ variant: 'outline' }))}>
+            Create account
+          </Link>
         </div>
       </div>
     </main>

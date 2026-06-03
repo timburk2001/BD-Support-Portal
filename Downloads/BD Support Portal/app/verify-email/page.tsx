@@ -1,5 +1,6 @@
 import Link from 'next/link'
-import { Button } from '@/components/ui/button'
+import { buttonVariants } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 
 export default function VerifyEmailPage() {
@@ -32,9 +33,9 @@ export default function VerifyEmailPage() {
           <p className="text-sm text-muted-foreground mb-4">
             Didn&apos;t receive it? Check your spam folder or try signing up again.
           </p>
-          <Button variant="outline" asChild className="w-full">
-            <Link href="/login">Back to sign in</Link>
-          </Button>
+          <Link href="/login" className={cn(buttonVariants({ variant: 'outline' }), 'w-full')}>
+            Back to sign in
+          </Link>
         </CardContent>
       </Card>
     </main>
