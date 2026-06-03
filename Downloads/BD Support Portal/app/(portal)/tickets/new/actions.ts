@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { sendAdminNewTicketEmail } from '@/lib/email'
 
 export type SubmitTicketState = {
   error?: string
@@ -93,7 +94,25 @@ export async function submitTicket(
     }
   }
 
-  // 3. Revalidate and redirect
+  // 3. Notify admins (fire-and-forget — do not block the redirect)
+  ;(async () => {
+    const { data: site } = await supabase
+      .from('sites')
+      .select('name')
+      .eq('id', siteId!)
+      .single()
+    await sendAdminNewTicketEmail({
+      ticketId: ticket.id,
+      title: title!,
+      clientName: null,
+      clientEmail: user.email ?? null,
+      siteName: (site as { name: string } | null)?.name ?? 'Unknown site',
+      method: 'standard',
+      description: description!,
+      attachmentCount: files.length,
+    })
+  })().catch((e) => console.error('[email] admin notification failed:', e))
+
   revalidatePath('/tickets')
   revalidatePath('/dashboard')
   redirect(`/tickets/${ticket.id}`)
