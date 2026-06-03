@@ -16,9 +16,10 @@ import { createClient } from '@/lib/supabase/browser'
 
 interface TopNavProps {
   email: string
+  isAdmin?: boolean
 }
 
-export function TopNav({ email }: TopNavProps) {
+export function TopNav({ email, isAdmin }: TopNavProps) {
   const router = useRouter()
 
   async function handleLogout() {
@@ -53,6 +54,14 @@ export function TopNav({ email }: TopNavProps) {
               >
                 Tickets
               </Link>
+              {isAdmin && (
+                <Link
+                  href="/admin"
+                  className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  Admin
+                </Link>
+              )}
             </nav>
           </div>
 

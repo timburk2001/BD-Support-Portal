@@ -1,8 +1,8 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
-import { TopNav } from '@/components/top-nav'
+import { AdminNav } from '@/components/admin-nav'
 
-export default async function PortalLayout({
+export default async function AdminLayout({
   children,
 }: {
   children: React.ReactNode
@@ -12,9 +12,7 @@ export default async function PortalLayout({
     data: { user },
   } = await supabase.auth.getUser()
 
-  if (!user) {
-    redirect('/login')
-  }
+  if (!user) redirect('/login')
 
   const { data: profile } = await supabase
     .from('profiles')
@@ -22,11 +20,11 @@ export default async function PortalLayout({
     .eq('id', user.id)
     .single()
 
-  const isAdmin = profile?.role === 'admin'
+  if (!profile || profile.role !== 'admin') redirect('/dashboard')
 
   return (
-    <div className="flex flex-col min-h-screen">
-      <TopNav email={user.email ?? ''} isAdmin={isAdmin} />
+    <div className="flex min-h-screen flex-col">
+      <AdminNav email={user.email ?? ''} />
       <main className="flex-1">{children}</main>
     </div>
   )
