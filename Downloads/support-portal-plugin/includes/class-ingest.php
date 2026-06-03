@@ -208,11 +208,14 @@ class Support_Portal_Ingest {
 		);
 
 		// Config object is localized — API key is NOT included here.
+		// Force https:// on the REST URL. WordPress home_url may be configured
+		// as http://, which would cause browsers to follow a 301 redirect and
+		// silently downgrade POST → GET (RFC 7231), making the route 404.
 		wp_localize_script(
 			'support-portal',
 			'SupportPortalConfig',
 			array(
-				'restUrl'        => esc_url_raw( rest_url( 'support-portal/v1/submit' ) ),
+				'restUrl'        => esc_url_raw( set_url_scheme( rest_url( 'support-portal/v1/submit' ), 'https' ) ),
 				'nonce'          => wp_create_nonce( 'wp_rest' ),
 				'buttonText'     => $settings['button_text'],
 				'buttonPosition' => $settings['button_position'],
