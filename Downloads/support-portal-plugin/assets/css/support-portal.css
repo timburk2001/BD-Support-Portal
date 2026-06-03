@@ -1,0 +1,345 @@
+/* ============================================================
+   Support Portal — frontend styles
+   All selectors are namespaced with .sp- or #sp- to avoid
+   collisions with theme CSS.
+   ============================================================ */
+
+/* ── Trigger button ─────────────────────────────────────────────────────── */
+
+.sp-trigger {
+  position: fixed;
+  bottom: 24px;
+  z-index: 99990;
+  padding: 10px 18px;
+  background: #1d4ed8;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+  transition: background 0.15s ease, transform 0.1s ease, box-shadow 0.15s ease;
+  user-select: none;
+}
+
+.sp-trigger:hover {
+  background: #1e40af;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.3);
+}
+
+.sp-trigger:active {
+  transform: scale(0.96);
+}
+
+.sp-trigger:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.sp-pos-bottom-right { right: 24px; }
+.sp-pos-bottom-left  { left:  24px; }
+
+/* ── Full-screen overlay ─────────────────────────────────────────────────── */
+
+#sp-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  background: rgba(0, 0, 0, 0.88);
+  display: flex;
+  align-items: stretch;
+  outline: none;
+}
+
+.sp-inner {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* ── Canvas area ─────────────────────────────────────────────────────────── */
+
+.sp-canvas-area {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+  background: #0d0d0d;
+  padding: 16px;
+  box-sizing: border-box;
+}
+
+#sp-markup-canvas {
+  display: block;
+  max-width: 100%;
+  cursor: crosshair;
+  box-shadow: 0 2px 24px rgba(0, 0, 0, 0.6);
+  border-radius: 2px;
+}
+
+/* ── Sidebar ─────────────────────────────────────────────────────────────── */
+
+.sp-sidebar {
+  width: 360px;
+  min-width: 320px;
+  max-width: 100%;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow-y: auto;
+  flex-shrink: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+.sp-sidebar-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid #e5e7eb;
+  position: sticky;
+  top: 0;
+  background: #fff;
+  z-index: 1;
+}
+
+.sp-sidebar-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: #111827;
+  letter-spacing: -0.01em;
+}
+
+.sp-close {
+  background: none;
+  border: none;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  color: #6b7280;
+  padding: 4px 6px;
+  border-radius: 4px;
+  transition: color 0.1s, background 0.1s;
+}
+
+.sp-close:hover {
+  color: #111827;
+  background: #f3f4f6;
+}
+
+/* ── Tool bar ────────────────────────────────────────────────────────────── */
+
+.sp-tools-bar {
+  padding: 12px 20px;
+  border-bottom: 1px solid #e5e7eb;
+  background: #fafafa;
+}
+
+.sp-tools-label {
+  display: block;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: #9ca3af;
+  margin-bottom: 8px;
+}
+
+.sp-tool-group {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.sp-tool {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 10px;
+  background: #fff;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #374151;
+  cursor: pointer;
+  transition: background 0.1s, border-color 0.1s, color 0.1s;
+  font-family: inherit;
+  line-height: 1;
+}
+
+.sp-tool:hover {
+  background: #f3f4f6;
+  border-color: #9ca3af;
+}
+
+.sp-tool-active {
+  background: #eff6ff;
+  border-color: #3b82f6;
+  color: #1d4ed8;
+}
+
+/* ── Form ────────────────────────────────────────────────────────────────── */
+
+.sp-form {
+  padding: 16px 20px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  flex: 1;
+}
+
+.sp-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.sp-field label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #374151;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.sp-req { color: #ef4444; }
+
+.sp-field input[type="text"],
+.sp-field input[type="email"],
+.sp-field textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 11px;
+  font-size: 14px;
+  font-family: inherit;
+  color: #111827;
+  background: #fff;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  line-height: 1.4;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.sp-field input[type="text"]:focus,
+.sp-field input[type="email"]:focus,
+.sp-field textarea:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+}
+
+.sp-field input[readonly] {
+  background: #f9fafb;
+  color: #6b7280;
+  cursor: default;
+}
+
+.sp-field textarea {
+  resize: vertical;
+  min-height: 88px;
+}
+
+.sp-error {
+  padding: 9px 12px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  font-size: 13px;
+  color: #b91c1c;
+  line-height: 1.4;
+}
+
+.sp-submit {
+  margin-top: 4px;
+  width: 100%;
+  padding: 10px 20px;
+  background: #1d4ed8;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.sp-submit:hover   { background: #1e40af; }
+.sp-submit:disabled { opacity: 0.6; cursor: not-allowed; }
+
+/* ── Floating text-note input ────────────────────────────────────────────── */
+
+.sp-text-input {
+  position: fixed;
+  z-index: 100001;
+  min-width: 220px;
+  padding: 5px 9px;
+  font-size: 14px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  color: #111827;
+  background: rgba(255, 255, 255, 0.96);
+  border: 2px solid #3b82f6;
+  border-radius: 5px;
+  outline: none;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.35);
+  transform: translateY(-100%);
+}
+
+/* ── Toast notifications ─────────────────────────────────────────────────── */
+
+.sp-toast {
+  position: fixed;
+  bottom: 80px;
+  right: 24px;
+  z-index: 100002;
+  padding: 11px 18px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 0.22s ease, transform 0.22s ease;
+  max-width: 320px;
+}
+
+.sp-toast-show {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.sp-toast-success { background: #16a34a; color: #fff; }
+.sp-toast-error   { background: #dc2626; color: #fff; }
+
+/* ── Narrow viewports ────────────────────────────────────────────────────── */
+
+@media (max-width: 640px) {
+  .sp-inner {
+    flex-direction: column;
+  }
+
+  .sp-canvas-area {
+    flex: none;
+    height: 45vh;
+    padding: 8px;
+  }
+
+  .sp-sidebar {
+    width: 100%;
+    min-width: 0;
+    height: auto;
+    flex: 1;
+  }
+}
