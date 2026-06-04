@@ -70,10 +70,10 @@
     var vpW     = window.innerWidth;
     var vpH     = window.innerHeight;
 
-    // Pass x/y/scrollX/scrollY so html2canvas renders the current viewport
-    // directly without physically scrolling the page to the top first.
-    // scrollX/scrollY as negative values offset element positions so that
-    // fixed/sticky elements land in the right place in the output.
+    // x/y define the crop region within the full rendered document.
+    // width/height set the output canvas size to the viewport.
+    // Do NOT override scrollX/scrollY — let html2canvas read them from the
+    // window so it correctly positions fixed/sticky elements in the output.
     return html2canvas(document.documentElement, {
       useCORS:    true,
       allowTaint: false,
@@ -82,13 +82,10 @@
       y:          scrollY,
       width:      vpW,
       height:     vpH,
-      scrollX:    -scrollX,
-      scrollY:    -scrollY,
       ignoreElements: function (el) {
         return el === triggerBtn || el === sessionBarEl;
       },
     }).then(function (canvas) {
-      // canvas is already viewport-sized — no manual crop needed
       return canvas.toDataURL('image/jpeg', 0.85);
     });
   }
