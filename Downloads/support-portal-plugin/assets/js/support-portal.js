@@ -35,19 +35,25 @@
 
   // ── Capture flows ──────────────────────────────────────────────────────────
 
+  var displayStream = null;  // shared screen-capture stream for the session
+  var captureVideo  = null;  // hidden <video> playing the stream
+
   function startCapture() {
-    submittingSession  = false;
+    submittingSession      = false;
     triggerBtn.disabled    = true;
     triggerBtn.textContent = 'Capturing…';
     hideSessionBar();
 
-    captureViewport()
+    ensureDisplayStream()
+      .then(captureFrame)
       .then(function (jpegDataUrl) {
         openOverlay(jpegDataUrl);
       })
       .catch(function (err) {
-        console.error('[SupportPortal] html2canvas error:', err);
-        showToast('Could not capture screenshot. Please try again.', 'error');
+        console.error('[SupportPortal] capture error:', err);
+        // A dead/denied stream shouldn't linger and block the next attempt.
+        if (err && err.message === 'SECURE_CONTEXT') releaseDisplayStream();
+        showToast(captureErrorMessage(err), 'error');
       })
       .then(function () {
         triggerBtn.disabled = false;
@@ -62,45 +68,116 @@
     openOverlay(null);
   }
 
-  // ── Core capture helper ────────────────────────────────────────────────────
+  // ── Screen capture (getDisplayMedia) ────────────────────────────────────────
+  // Captures exactly what's painted in the tab — pixel-perfect and immune to
+  // the DOM re-render problems of html2canvas. The stream is requested once per
+  // session (a single "share this tab" prompt) and reused for every capture,
+  // so the multi-issue flow never re-prompts.
 
-  function captureViewport() {
-    var scrollX = window.scrollX || window.pageXOffset || 0;
-    var scrollY = window.scrollY || window.pageYOffset || 0;
-    var vpW     = window.innerWidth;
-    var vpH     = window.innerHeight;
-    var docEl   = document.documentElement;
-
-    // Use html2canvas DEFAULT options. Defaults reliably render the full page
-    // anchored at the document origin (0,0) — earlier builds that overrode
-    // scale/scrollX/scrollY/windowHeight either cropped the wrong region or
-    // produced a too-short canvas (blank captures once scrolled).
-    //
-    // The default output is at devicePixelRatio scale (e.g. 2 on retina), so
-    // we measure the actual scale from the canvas and multiply the crop
-    // rectangle by it. This is density-agnostic and crops exactly the region
-    // the user is looking at, regardless of scroll position.
-    return html2canvas(docEl, {
-      useCORS:    true,
-      allowTaint: false,
-      logging:    false,
-      ignoreElements: function (el) {
-        return el === triggerBtn || el === sessionBarEl;
-      },
-    }).then(function (fullCanvas) {
-      var scale = fullCanvas.width / (docEl.scrollWidth || vpW) || 1;
-      var sx = Math.round(scrollX * scale);
-      var sy = Math.round(scrollY * scale);
-      var sw = Math.round(vpW * scale);
-      var sh = Math.round(vpH * scale);
-
-      var crop = document.createElement('canvas');
-      crop.width  = sw;
-      crop.height = sh;
-      crop.getContext('2d').drawImage(fullCanvas, sx, sy, sw, sh, 0, 0, sw, sh);
-      // JPEG at 0.85 keeps payload well under the portal's 4 MB limit
-      return crop.toDataURL('image/jpeg', 0.85);
+  function ensureDisplayStream() {
+    if (displayStream && displayStream.active) {
+      return Promise.resolve();
+    }
+    if (!navigator.mediaDevices ||
+        !navigator.mediaDevices.getDisplayMedia ||
+        !window.isSecureContext) {
+      return Promise.reject(new Error('SECURE_CONTEXT'));
+    }
+    return navigator.mediaDevices.getDisplayMedia({
+      video: { frameRate: { ideal: 8 } },
+      audio: false,
+      preferCurrentTab: true, // Chrome: default the picker to this tab
+    }).then(function (stream) {
+      displayStream = stream;
+      // If the user hits the browser's native "Stop sharing", drop our ref so
+      // the next capture re-prompts instead of grabbing from a dead stream.
+      stream.getVideoTracks().forEach(function (t) {
+        t.addEventListener('ended', releaseDisplayStream);
+      });
+      captureVideo = document.createElement('video');
+      captureVideo.muted       = true;
+      captureVideo.playsInline = true;
+      // Rendered (so it keeps decoding frames) but off-screen, so it never
+      // appears in the captured tab.
+      captureVideo.style.cssText =
+        'position:fixed;left:-99999px;top:0;width:2px;height:2px;opacity:0;pointer-events:none;';
+      captureVideo.srcObject = stream;
+      document.body.appendChild(captureVideo);
+      return captureVideo.play().then(function () {
+        return waitForVideoReady(captureVideo);
+      });
     });
+  }
+
+  function waitForVideoReady(video) {
+    return new Promise(function (resolve) {
+      if (video.videoWidth > 0 && video.readyState >= 2) { resolve(); return; }
+      var done = false;
+      function ready() { if (done) return; done = true; resolve(); }
+      video.addEventListener('loadeddata', ready, { once: true });
+      setTimeout(ready, 1500); // safety net so we never hang
+    });
+  }
+
+  // Grab a single still from the live stream, hiding our own UI first so the
+  // floating button / session bar never appear in the shot.
+  function captureFrame() {
+    return hideOwnUiThen(function () {
+      var w = captureVideo ? captureVideo.videoWidth  : 0;
+      var h = captureVideo ? captureVideo.videoHeight : 0;
+      if (!w || !h) throw new Error('NO_FRAME');
+      var canvas = document.createElement('canvas');
+      canvas.width  = w;
+      canvas.height = h;
+      canvas.getContext('2d').drawImage(captureVideo, 0, 0, w, h);
+      // JPEG at 0.85 keeps payload well under the portal's 4 MB limit
+      return canvas.toDataURL('image/jpeg', 0.85);
+    });
+  }
+
+  // Hide trigger + session bar, wait for the stream to reflect the change,
+  // run fn, then restore. Returns fn()'s result.
+  function hideOwnUiThen(fn) {
+    var prevTrigger = triggerBtn   ? triggerBtn.style.visibility   : '';
+    var prevBar     = sessionBarEl ? sessionBarEl.style.visibility : '';
+    if (triggerBtn)   triggerBtn.style.visibility   = 'hidden';
+    if (sessionBarEl) sessionBarEl.style.visibility = 'hidden';
+    return nextPaint().then(nextPaint).then(function () {
+      try {
+        return fn();
+      } finally {
+        if (triggerBtn)   triggerBtn.style.visibility   = prevTrigger;
+        if (sessionBarEl) sessionBarEl.style.visibility = prevBar;
+      }
+    });
+  }
+
+  function nextPaint() {
+    return new Promise(function (resolve) {
+      requestAnimationFrame(function () { setTimeout(resolve, 40); });
+    });
+  }
+
+  function releaseDisplayStream() {
+    if (displayStream) {
+      displayStream.getTracks().forEach(function (t) { t.stop(); });
+      displayStream = null;
+    }
+    if (captureVideo) {
+      captureVideo.srcObject = null;
+      captureVideo.remove();
+      captureVideo = null;
+    }
+  }
+
+  function captureErrorMessage(err) {
+    if (err && err.message === 'SECURE_CONTEXT') {
+      return 'Screen capture needs a secure (https://) connection. Please open this page over https and try again.';
+    }
+    if (err && (err.name === 'NotAllowedError' || err.name === 'AbortError')) {
+      return 'Screen capture was cancelled.';
+    }
+    return 'Could not capture the screen. Please try again.';
   }
 
   // ── Overlay ────────────────────────────────────────────────────────────────
@@ -488,6 +565,8 @@
     capturedScreenshots = [];
     savedFormData       = null;
     submittingSession   = false;
+    // End of session — stop sharing so the browser's capture indicator clears.
+    releaseDisplayStream();
     hideSessionBar();
     updateTriggerState();
   }

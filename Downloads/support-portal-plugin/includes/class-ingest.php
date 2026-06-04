@@ -186,23 +186,12 @@ class Support_Portal_Ingest {
 			return;
 		}
 
-		$vendor_file = SUPPORT_PORTAL_PATH . 'assets/vendor/html2canvas.min.js';
-		if ( ! file_exists( $vendor_file ) ) {
-			return;
-		}
-
-		wp_enqueue_script(
-			'html2canvas',
-			SUPPORT_PORTAL_URL . 'assets/vendor/html2canvas.min.js',
-			array(),
-			'1.4.1',
-			true
-		);
-
+		// Screenshots are captured via the browser's native Screen Capture API
+		// (getDisplayMedia) — no html2canvas dependency needed.
 		wp_enqueue_script(
 			'support-portal-markup',
 			SUPPORT_PORTAL_URL . 'assets/js/markup-canvas.js',
-			array( 'html2canvas' ),
+			array(),
 			SUPPORT_PORTAL_VERSION,
 			true
 		);
