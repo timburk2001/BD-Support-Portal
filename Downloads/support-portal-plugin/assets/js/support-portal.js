@@ -69,24 +69,43 @@
     var scrollY = window.scrollY || window.pageYOffset || 0;
     var vpW     = window.innerWidth;
     var vpH     = window.innerHeight;
+    var docEl   = document.documentElement;
+    var fullW   = docEl.scrollWidth;
+    var fullH   = docEl.scrollHeight;
 
-    // x/y define the crop region within the full rendered document.
-    // width/height set the output canvas size to the viewport.
-    // Do NOT override scrollX/scrollY — let html2canvas read them from the
-    // window so it correctly positions fixed/sticky elements in the output.
-    return html2canvas(document.documentElement, {
-      useCORS:    true,
-      allowTaint: false,
-      logging:    false,
-      x:          scrollX,
-      y:          scrollY,
-      width:      vpW,
-      height:     vpH,
+    // Render the ENTIRE page at a known 1:1 scale anchored to the document
+    // origin, then crop out the current viewport ourselves. This avoids the
+    // finicky x/y/scrollX/scrollY crop semantics in html2canvas (which were
+    // capturing the wrong region):
+    //   - scale: 1        → output is in CSS pixels, so crop coords need no
+    //                        devicePixelRatio multiplication
+    //   - scrollX/Y: 0    → elements render at their absolute document
+    //                        coordinates (no scroll offset), so canvas (0,0)
+    //                        maps to document (0,0)
+    //   - windowWidth/Height set to the full page so nothing below the fold
+    //                        is clipped during the clone render
+    return html2canvas(docEl, {
+      useCORS:      true,
+      allowTaint:   false,
+      logging:      false,
+      scale:        1,
+      scrollX:      0,
+      scrollY:      0,
+      windowWidth:  fullW,
+      windowHeight: fullH,
       ignoreElements: function (el) {
         return el === triggerBtn || el === sessionBarEl;
       },
-    }).then(function (canvas) {
-      return canvas.toDataURL('image/jpeg', 0.85);
+    }).then(function (fullCanvas) {
+      // Crop the viewport region in document (CSS-pixel) coordinates.
+      var crop = document.createElement('canvas');
+      crop.width  = vpW;
+      crop.height = vpH;
+      crop.getContext('2d').drawImage(
+        fullCanvas, scrollX, scrollY, vpW, vpH, 0, 0, vpW, vpH
+      );
+      // JPEG at 0.85 keeps payload well under the portal's 4 MB limit
+      return crop.toDataURL('image/jpeg', 0.85);
     });
   }
 
