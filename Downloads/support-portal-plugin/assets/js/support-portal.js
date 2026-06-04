@@ -70,22 +70,26 @@
     var vpW     = window.innerWidth;
     var vpH     = window.innerHeight;
 
+    // Pass x/y/scrollX/scrollY so html2canvas renders the current viewport
+    // directly without physically scrolling the page to the top first.
+    // scrollX/scrollY as negative values offset element positions so that
+    // fixed/sticky elements land in the right place in the output.
     return html2canvas(document.documentElement, {
       useCORS:    true,
       allowTaint: false,
       logging:    false,
+      x:          scrollX,
+      y:          scrollY,
+      width:      vpW,
+      height:     vpH,
+      scrollX:    -scrollX,
+      scrollY:    -scrollY,
       ignoreElements: function (el) {
         return el === triggerBtn || el === sessionBarEl;
       },
-    }).then(function (fullCanvas) {
-      var crop = document.createElement('canvas');
-      crop.width  = vpW;
-      crop.height = vpH;
-      crop.getContext('2d').drawImage(
-        fullCanvas, scrollX, scrollY, vpW, vpH, 0, 0, vpW, vpH
-      );
-      // JPEG at 0.85 keeps payload well under the portal's 4 MB limit
-      return crop.toDataURL('image/jpeg', 0.85);
+    }).then(function (canvas) {
+      // canvas is already viewport-sized — no manual crop needed
+      return canvas.toDataURL('image/jpeg', 0.85);
     });
   }
 
