@@ -10,6 +10,10 @@
   var savedFormData       = null; // { title, description, name, email } preserved between opens
   var submittingSession   = false; // true when overlay is open for final submit (no new capture)
 
+  // sessionStorage key — persists the in-progress report across full page
+  // navigations within the same tab (cleared on submit, close, or tab close).
+  var SP_STORE_KEY = 'sp_session_v1';
+
   // ── Init ───────────────────────────────────────────────────────────────────
 
   function boot() {
@@ -31,6 +35,45 @@
       '<button type="button" id="sp-session-submit" class="sp-session-submit-btn">Submit now</button>';
     document.body.appendChild(sessionBarEl);
     document.getElementById('sp-session-submit').addEventListener('click', startSubmitSession);
+
+    // Restore any in-progress report from a previous page in this tab.
+    loadSession();
+    if (capturedScreenshots.length > 0) {
+      updateTriggerState();
+      showSessionBar();
+    }
+  }
+
+  // ── Session persistence (survives page navigation within the tab) ───────────
+
+  function persistSession() {
+    try {
+      sessionStorage.setItem(SP_STORE_KEY, JSON.stringify({
+        screenshots: capturedScreenshots,
+        form:        savedFormData,
+      }));
+    } catch (e) {
+      // Most likely a storage-quota error from too many large screenshots.
+      // The in-memory copy still works for the current page.
+      console.warn('[SupportPortal] could not persist session:', e);
+      showToast('Too many screenshots to carry across pages — submit soon.', 'error');
+    }
+  }
+
+  function loadSession() {
+    try {
+      var raw = sessionStorage.getItem(SP_STORE_KEY);
+      if (!raw) return;
+      var data = JSON.parse(raw);
+      if (data && Array.isArray(data.screenshots)) capturedScreenshots = data.screenshots;
+      if (data && data.form) savedFormData = data.form;
+    } catch (e) {
+      console.warn('[SupportPortal] could not load session:', e);
+    }
+  }
+
+  function clearSession() {
+    try { sessionStorage.removeItem(SP_STORE_KEY); } catch (e) {}
   }
 
   // ── Capture flows ──────────────────────────────────────────────────────────
@@ -312,14 +355,16 @@
     savedFormData = collectFormData();
     capturedScreenshots.push(MarkupCanvas.getDataUrl());
     MarkupCanvas.destroy();
+    persistSession();
     softCloseOverlay();
-    showToast('Screenshot saved — navigate to your next issue.', 'success');
+    showToast('Screenshot saved — go to your next issue (other pages are fine).', 'success');
   }
 
   // Called when the user is in submit mode and wants to add more instead.
   // Nothing to save from the canvas (there isn't one); just return to session.
   function returnToSession() {
     savedFormData = collectFormData();
+    persistSession();
     softCloseOverlay();
   }
 
@@ -565,7 +610,9 @@
     capturedScreenshots = [];
     savedFormData       = null;
     submittingSession   = false;
-    // End of session — stop sharing so the browser's capture indicator clears.
+    // End of session — drop the saved draft and stop sharing so the browser's
+    // capture indicator clears.
+    clearSession();
     releaseDisplayStream();
     hideSessionBar();
     updateTriggerState();
