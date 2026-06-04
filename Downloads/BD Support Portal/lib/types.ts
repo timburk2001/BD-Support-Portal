@@ -22,6 +22,7 @@ export interface Ticket {
   site_id: string
   submitted_by: string | null
   submitter_email: string | null
+  reply_to_email: string | null
   method: TicketMethod
   title: string
   description: string

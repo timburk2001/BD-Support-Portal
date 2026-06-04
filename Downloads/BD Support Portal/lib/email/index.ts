@@ -4,6 +4,7 @@ import {
   adminNewTicketHtml,
   clientStatusChangeHtml,
   clientStaffReplyHtml,
+  submitterReceiptHtml,
 } from './templates'
 
 const resend = new Resend(process.env.RESEND_API_KEY)
@@ -16,12 +17,14 @@ async function sendEmail(opts: {
   to: string | string[]
   subject: string
   html: string
+  replyTo?: string | string[]
 }): Promise<void> {
   const { error } = await resend.emails.send({
     from: FROM,
     to: Array.isArray(opts.to) ? opts.to : [opts.to],
     subject: opts.subject,
     html: opts.html,
+    ...(opts.replyTo ? { replyTo: opts.replyTo } : {}),
   })
   if (error) throw error
 }
@@ -37,7 +40,10 @@ async function getAdminEmails(): Promise<string[]> {
 async function getClientEmail(
   submittedBy: string | null,
   submitterEmail: string | null,
+  replyToEmail?: string | null,
 ): Promise<string | null> {
+  // A submitter-provided reply-to address always wins.
+  if (replyToEmail) return replyToEmail
   if (submittedBy) {
     const admin = createAdminClient()
     const { data } = await admin
@@ -57,6 +63,7 @@ export interface NewTicketEmailOpts {
   title: string
   clientName: string | null
   clientEmail: string | null
+  replyToEmail?: string | null
   siteName: string
   method: string
   description: string
@@ -70,10 +77,14 @@ export async function sendAdminNewTicketEmail(opts: NewTicketEmailOpts): Promise
   const adminUrl = `${SITE_URL}/admin/tickets/${opts.ticketId}`
   const html = adminNewTicketHtml({ ...opts, adminUrl })
 
+  // Let an admin reply straight from their inbox to the requester.
+  const replyTo = opts.replyToEmail ?? opts.clientEmail ?? undefined
+
   await sendEmail({
     to,
     subject: `[Support] New ticket: ${opts.title}`,
     html,
+    replyTo,
   })
 }
 
@@ -83,10 +94,11 @@ export interface StatusChangeEmailOpts {
   status: string
   submittedBy: string | null
   submitterEmail: string | null
+  replyToEmail?: string | null
 }
 
 export async function sendClientStatusChangeEmail(opts: StatusChangeEmailOpts): Promise<void> {
-  const to = await getClientEmail(opts.submittedBy, opts.submitterEmail)
+  const to = await getClientEmail(opts.submittedBy, opts.submitterEmail, opts.replyToEmail)
   if (!to) return
 
   const ticketUrl = `${SITE_URL}/tickets/${opts.ticketId}`
@@ -97,6 +109,7 @@ export async function sendClientStatusChangeEmail(opts: StatusChangeEmailOpts): 
     to,
     subject: `[Support] Your ticket '${opts.title}' is now ${statusLabel}`,
     html,
+    replyTo: FROM,
   })
 }
 
@@ -106,10 +119,11 @@ export interface StaffReplyEmailOpts {
   excerpt: string
   submittedBy: string | null
   submitterEmail: string | null
+  replyToEmail?: string | null
 }
 
 export async function sendClientStaffReplyEmail(opts: StaffReplyEmailOpts): Promise<void> {
-  const to = await getClientEmail(opts.submittedBy, opts.submitterEmail)
+  const to = await getClientEmail(opts.submittedBy, opts.submitterEmail, opts.replyToEmail)
   if (!to) return
 
   const ticketUrl = `${SITE_URL}/tickets/${opts.ticketId}`
@@ -119,5 +133,34 @@ export async function sendClientStaffReplyEmail(opts: StaffReplyEmailOpts): Prom
     to,
     subject: `[Support] New reply on '${opts.title}'`,
     html,
+    replyTo: FROM,
+  })
+}
+
+// ─── Submitter receipt — "create an account to track this ticket" ─────────────
+
+export interface SubmitterReceiptEmailOpts {
+  ticketId: string
+  title: string
+  submitterEmail: string | null
+  replyToEmail: string | null
+}
+
+export async function sendSubmitterTicketReceiptEmail(
+  opts: SubmitterReceiptEmailOpts,
+): Promise<void> {
+  const to = opts.replyToEmail ?? opts.submitterEmail
+  if (!to) return
+
+  const signupUrl =
+    `${SITE_URL}/signup?email=${encodeURIComponent(to)}` +
+    `&next=${encodeURIComponent(`/tickets/${opts.ticketId}`)}`
+  const html = submitterReceiptHtml({ title: opts.title, signupUrl })
+
+  await sendEmail({
+    to,
+    subject: `[Support] We received your request: ${opts.title}`,
+    html,
+    replyTo: FROM,
   })
 }

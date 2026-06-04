@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto'
 import { z } from 'zod'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { checkRateLimit } from '@/lib/rate-limit'
-import { sendAdminNewTicketEmail } from '@/lib/email'
+import { sendAdminNewTicketEmail, sendSubmitterTicketReceiptEmail } from '@/lib/email'
 
 const IngestSchema = z.object({
   title: z.string().min(1, 'title is required').max(120, 'title must be ≤ 120 chars'),
@@ -38,6 +38,12 @@ const IngestSchema = z.object({
     .string()
     .max(200)
     .optional()
+    .transform((v) => v || null),
+  reply_to_email: z
+    .string()
+    .email()
+    .optional()
+    .or(z.literal(''))
     .transform((v) => v || null),
   annotated_screenshot: z
     .string()
@@ -125,6 +131,7 @@ export async function POST(request: NextRequest) {
     viewport,
     submitter_email,
     submitter_name,
+    reply_to_email,
     annotated_screenshot,
     annotated_screenshots,
   } = parsed.data
@@ -167,6 +174,7 @@ export async function POST(request: NextRequest) {
       submitted_by: submittedBy,
       submitter_email,
       submitter_name,
+      reply_to_email,
       method: 'visual',
       title,
       description,
@@ -220,7 +228,7 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // ── 10. Notify admins (fire-and-forget) ─────────────────────────────────────
+  // ── 10. Notify admins + send the submitter a receipt (fire-and-forget) ──────
   ;(async () => {
     const { data: site } = await admin
       .from('sites')
@@ -233,12 +241,37 @@ export async function POST(request: NextRequest) {
       title,
       clientName: submitter_name ?? null,
       clientEmail: submitter_email ?? null,
+      replyToEmail: reply_to_email,
       siteName: (site as { name: string } | null)?.name ?? 'Unknown site',
       method: 'visual',
       description,
       attachmentCount: allScreenshots.length,
     })
-  })().catch((e) => console.error('[email] admin notification failed:', e))
 
-  return NextResponse.json({ ok: true, ticket_id: ticket.id })
+    // Anonymous submitters get a "create an account to track this" receipt.
+    if (!submittedBy && (reply_to_email || submitter_email)) {
+      await sendSubmitterTicketReceiptEmail({
+        ticketId: ticket.id,
+        title,
+        submitterEmail: submitter_email,
+        replyToEmail: reply_to_email,
+      })
+    }
+  })().catch((e) => console.error('[email] notification failed:', e))
+
+  // ── 11. Respond with tracking + signup URLs so the plugin needn't hardcode
+  //        the portal host. ───────────────────────────────────────────────────
+  const baseUrl = (process.env.NEXT_PUBLIC_APP_URL ?? new URL(request.url).origin).replace(/\/$/, '')
+  const trackUrl = `${baseUrl}/tickets/${ticket.id}`
+  const signupRecipient = reply_to_email ?? submitter_email
+  const signupUrl =
+    `${baseUrl}/signup?next=${encodeURIComponent(`/tickets/${ticket.id}`)}` +
+    (signupRecipient ? `&email=${encodeURIComponent(signupRecipient)}` : '')
+
+  return NextResponse.json({
+    ok: true,
+    ticket_id: ticket.id,
+    track_url: trackUrl,
+    signup_url: signupUrl,
+  })
 }

@@ -6,9 +6,12 @@
   var cfg             = window.SupportPortalConfig;
   var triggerBtn;
   var sessionBarEl;
-  var capturedScreenshots = [];  // finalized annotated JPEGs from previous captures
-  var savedFormData       = null; // { title, description, name, email } preserved between opens
-  var submittingSession   = false; // true when overlay is open for final submit (no new capture)
+  // Each entry: { image: rawScreenshotDataUrl, annotations: [...], _thumb?: dataUrl }
+  var capturedScreenshots = [];
+  var savedFormData       = null; // { title, description, name, email, replyTo }
+  var submittingSession   = false; // overlay open for final submit (no live canvas)
+  var editingIndex        = null;  // index of the saved screenshot being edited, else null
+  var currentRawImage     = null;  // raw capture currently on the canvas
 
   // sessionStorage key — persists the in-progress report across full page
   // navigations within the same tab (cleared on submit, close, or tab close).
@@ -25,7 +28,6 @@
     document.body.appendChild(triggerBtn);
     triggerBtn.addEventListener('click', startCapture);
 
-    // Session bar — visible when screenshots are queued but overlay is closed
     sessionBarEl = document.createElement('div');
     sessionBarEl.id        = 'sp-session-bar';
     sessionBarEl.className = 'sp-session-bar sp-pos-' + (cfg.buttonPosition || 'bottom-right');
@@ -48,13 +50,11 @@
 
   function persistSession() {
     try {
-      sessionStorage.setItem(SP_STORE_KEY, JSON.stringify({
-        screenshots: capturedScreenshots,
-        form:        savedFormData,
-      }));
+      sessionStorage.setItem(SP_STORE_KEY, JSON.stringify(
+        { screenshots: capturedScreenshots, form: savedFormData },
+        function (k, v) { return k === '_thumb' ? undefined : v; } // don't persist thumb cache
+      ));
     } catch (e) {
-      // Most likely a storage-quota error from too many large screenshots.
-      // The in-memory copy still works for the current page.
       console.warn('[SupportPortal] could not persist session:', e);
       showToast('Too many screenshots to carry across pages — submit soon.', 'error');
     }
@@ -65,7 +65,12 @@
       var raw = sessionStorage.getItem(SP_STORE_KEY);
       if (!raw) return;
       var data = JSON.parse(raw);
-      if (data && Array.isArray(data.screenshots)) capturedScreenshots = data.screenshots;
+      if (data && Array.isArray(data.screenshots)) {
+        capturedScreenshots = data.screenshots.map(function (s) {
+          // Back-compat: old sessions stored flattened JPEG strings.
+          return (typeof s === 'string') ? { image: s, annotations: [] } : s;
+        });
+      }
       if (data && data.form) savedFormData = data.form;
     } catch (e) {
       console.warn('[SupportPortal] could not load session:', e);
@@ -83,18 +88,18 @@
 
   function startCapture() {
     submittingSession      = false;
+    editingIndex           = null;
     triggerBtn.disabled    = true;
     triggerBtn.textContent = 'Capturing…';
     hideSessionBar();
 
     ensureDisplayStream()
       .then(captureFrame)
-      .then(function (jpegDataUrl) {
-        openOverlay(jpegDataUrl);
+      .then(function (rawImage) {
+        openOverlay(rawImage);
       })
       .catch(function (err) {
         console.error('[SupportPortal] capture error:', err);
-        // A dead/denied stream shouldn't linger and block the next attempt.
         if (err && err.message === 'SECURE_CONTEXT') releaseDisplayStream();
         showToast(captureErrorMessage(err), 'error');
       })
@@ -107,15 +112,12 @@
   // Open overlay showing saved screenshots + form only (no new capture)
   function startSubmitSession() {
     submittingSession = true;
+    editingIndex      = null;
     hideSessionBar();
     openOverlay(null);
   }
 
   // ── Screen capture (getDisplayMedia) ────────────────────────────────────────
-  // Captures exactly what's painted in the tab — pixel-perfect and immune to
-  // the DOM re-render problems of html2canvas. The stream is requested once per
-  // session (a single "share this tab" prompt) and reused for every capture,
-  // so the multi-issue flow never re-prompts.
 
   function ensureDisplayStream() {
     if (displayStream && displayStream.active) {
@@ -129,19 +131,15 @@
     return navigator.mediaDevices.getDisplayMedia({
       video: { frameRate: { ideal: 8 } },
       audio: false,
-      preferCurrentTab: true, // Chrome: default the picker to this tab
+      preferCurrentTab: true,
     }).then(function (stream) {
       displayStream = stream;
-      // If the user hits the browser's native "Stop sharing", drop our ref so
-      // the next capture re-prompts instead of grabbing from a dead stream.
       stream.getVideoTracks().forEach(function (t) {
         t.addEventListener('ended', releaseDisplayStream);
       });
       captureVideo = document.createElement('video');
       captureVideo.muted       = true;
       captureVideo.playsInline = true;
-      // Rendered (so it keeps decoding frames) but off-screen, so it never
-      // appears in the captured tab.
       captureVideo.style.cssText =
         'position:fixed;left:-99999px;top:0;width:2px;height:2px;opacity:0;pointer-events:none;';
       captureVideo.srcObject = stream;
@@ -158,28 +156,28 @@
       var done = false;
       function ready() { if (done) return; done = true; resolve(); }
       video.addEventListener('loadeddata', ready, { once: true });
-      setTimeout(ready, 1500); // safety net so we never hang
+      setTimeout(ready, 1500);
     });
   }
 
-  // Grab a single still from the live stream, hiding our own UI first so the
-  // floating button / session bar never appear in the shot.
+  // Grab a still from the live stream (downscaled to 1600px wide), hiding our
+  // own UI first so the floating button / session bar never appear in the shot.
   function captureFrame() {
     return hideOwnUiThen(function () {
       var w = captureVideo ? captureVideo.videoWidth  : 0;
       var h = captureVideo ? captureVideo.videoHeight : 0;
       if (!w || !h) throw new Error('NO_FRAME');
-      var canvas = document.createElement('canvas');
-      canvas.width  = w;
-      canvas.height = h;
-      canvas.getContext('2d').drawImage(captureVideo, 0, 0, w, h);
-      // JPEG at 0.85 keeps payload well under the portal's 4 MB limit
-      return canvas.toDataURL('image/jpeg', 0.85);
+      var scale = Math.min(1, 1600 / w);
+      var cw = Math.round(w * scale);
+      var ch = Math.round(h * scale);
+      var c  = document.createElement('canvas');
+      c.width  = cw;
+      c.height = ch;
+      c.getContext('2d').drawImage(captureVideo, 0, 0, cw, ch);
+      return c.toDataURL('image/jpeg', 0.85);
     });
   }
 
-  // Hide trigger + session bar, wait for the stream to reflect the change,
-  // run fn, then restore. Returns fn()'s result.
   function hideOwnUiThen(fn) {
     var prevTrigger = triggerBtn   ? triggerBtn.style.visibility   : '';
     var prevBar     = sessionBarEl ? sessionBarEl.style.visibility : '';
@@ -225,24 +223,31 @@
 
   // ── Overlay ────────────────────────────────────────────────────────────────
 
-  function openOverlay(jpegDataUrl) {
+  function openOverlay(imageDataUrl) {
+    removeOverlayDom(); // idempotent — never stack overlays
+
     var overlay = document.createElement('div');
     overlay.id        = 'sp-overlay';
     overlay.innerHTML = overlayHTML();
     document.body.appendChild(overlay);
     document.body.style.overflow = 'hidden';
 
-    if (!submittingSession && jpegDataUrl) {
-      initCanvas(jpegDataUrl);
+    if (!submittingSession && imageDataUrl) {
+      currentRawImage = imageDataUrl;
+      var initialAnns = (editingIndex != null && capturedScreenshots[editingIndex])
+        ? capturedScreenshots[editingIndex].annotations
+        : [];
+      initCanvas(imageDataUrl, initialAnns);
       wireTools();
+      setActiveTool('pin');
     } else {
-      // Submit mode — swap canvas area for a thumbnail summary
+      // Submit/review mode — swap canvas area for the screenshot manager.
       var canvasArea = document.getElementById('sp-canvas-area');
-      if (canvasArea) canvasArea.innerHTML = buildSubmitSummary();
+      if (canvasArea) { canvasArea.innerHTML = ''; canvasArea.appendChild(buildSubmitSummary()); }
       var toolsBar = overlay.querySelector('.sp-tools-bar');
       if (toolsBar) toolsBar.style.display = 'none';
       var titleEl = overlay.querySelector('.sp-sidebar-title');
-      if (titleEl) titleEl.textContent = 'Submit your report';
+      if (titleEl) titleEl.textContent = 'Review & submit';
     }
 
     prefillUser();
@@ -260,24 +265,14 @@
     refreshScreenshotInfo();
   }
 
-  function buildSubmitSummary() {
-    var n = capturedScreenshots.length;
-    var thumbs = capturedScreenshots.map(function (dataUrl, i) {
-      return '<img src="' + dataUrl + '" class="sp-submit-thumb" alt="Screenshot ' + (i + 1) + '">';
-    }).join('');
-    return (
-      '<div class="sp-submit-summary">' +
-        '<p class="sp-submit-summary-count">' + n + ' screenshot' + (n !== 1 ? 's' : '') + ' ready to submit</p>' +
-        '<div class="sp-submit-thumbs">' + thumbs + '</div>' +
-      '</div>'
-    );
-  }
-
   function overlayHTML() {
     return [
       '<div class="sp-inner">',
       '  <div id="sp-canvas-area" class="sp-canvas-area">',
-      '    <canvas id="sp-markup-canvas"></canvas>',
+      '    <div class="sp-canvas-wrap">',
+      '      <canvas id="sp-markup-canvas"></canvas>',
+      '      <div id="sp-badge-layer" class="sp-badge-layer"></div>',
+      '    </div>',
       '  </div>',
       '  <aside class="sp-sidebar" role="complementary">',
 
@@ -294,20 +289,17 @@
       '    <div class="sp-tools-bar">',
       '      <span class="sp-tools-label">Annotate</span>',
       '      <div class="sp-tool-group" role="toolbar" aria-label="Annotation tools">',
-      '        <button type="button" data-tool="rect"   class="sp-tool sp-tool-active" title="Draw rectangle">',
-      '          <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="1.5" y="1.5" width="12" height="12" rx="1.5"/></svg>Rect',
+      '        <button type="button" data-tool="pin" class="sp-tool sp-tool-active" title="Pinned comment">',
+      '          <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="7.5" cy="6" r="3"/><line x1="7.5" y1="9" x2="7.5" y2="14"/></svg>Comment',
       '        </button>',
-      '        <button type="button" data-tool="pin"    class="sp-tool" title="Drop numbered pin">',
-      '          <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="7.5" cy="6" r="3"/><line x1="7.5" y1="9" x2="7.5" y2="14"/></svg>Pin',
+      '        <button type="button" data-tool="rect" class="sp-tool" title="Draw rectangle">',
+      '          <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="1.5" y="1.5" width="12" height="12" rx="1.5"/></svg>Rectangle',
       '        </button>',
-      '        <button type="button" data-tool="text"   class="sp-tool" title="Add text note">',
-      '          <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M3 3h9M7.5 3v9"/></svg>Text',
+      '        <button type="button" data-tool="circle" class="sp-tool" title="Draw circle">',
+      '          <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="7.5" cy="7.5" r="6"/></svg>Circle',
       '        </button>',
-      '        <button type="button" data-tool="eraser" class="sp-tool" title="Erase annotation">',
-      '          <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M10 3 4 13"/><path d="M2 13h11"/></svg>Erase',
-      '        </button>',
-      '        <button type="button" id="sp-undo" class="sp-tool" title="Undo">',
-      '          <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M2 6h7a4 4 0 0 1 0 8H6"/><path d="M2 6l3-3-3 3 3 3"/></svg>Undo',
+      '        <button type="button" data-tool="arrow" class="sp-tool" title="Draw arrow">',
+      '          <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><line x1="2" y1="13" x2="13" y2="2"/><path d="M7 2h6v6"/></svg>Arrow',
       '        </button>',
       '      </div>',
       '    </div>',
@@ -329,6 +321,10 @@
       '        <label for="sp-email">Email <span class="sp-req" aria-hidden="true">*</span></label>',
       '        <input type="email" id="sp-email" name="submitter_email" placeholder="you@example.com" autocomplete="email" required />',
       '      </div>',
+      '      <div class="sp-field">',
+      '        <label for="sp-reply-to">Reply-to email <span class="sp-optional">(optional)</span></label>',
+      '        <input type="email" id="sp-reply-to" name="reply_to_email" placeholder="Where should we reply, if different?" autocomplete="email" />',
+      '      </div>',
       '      <div id="sp-error" class="sp-error" role="alert" style="display:none"></div>',
       '      <button type="submit" id="sp-submit" class="sp-submit">Submit report</button>',
       '      <button type="button" id="sp-add-issue" class="sp-add-issue-btn">+ Report another issue</button>',
@@ -340,28 +336,36 @@
 
   // ── Canvas init ────────────────────────────────────────────────────────────
 
-  function initCanvas(jpegDataUrl) {
-    var canvasArea = document.getElementById('sp-canvas-area');
-    var areaW = canvasArea ? canvasArea.clientWidth : window.innerWidth - 360;
-    MarkupCanvas.init(document.getElementById('sp-markup-canvas'), jpegDataUrl, areaW);
+  function initCanvas(imageDataUrl, annotations) {
+    MarkupCanvas.init(document.getElementById('sp-markup-canvas'), imageDataUrl, annotations);
+  }
+
+  function setActiveTool(tool) {
+    var btns = document.querySelectorAll('.sp-tool[data-tool]');
+    btns.forEach(function (b) {
+      b.classList.toggle('sp-tool-active', b.getAttribute('data-tool') === tool);
+    });
+    MarkupCanvas.setTool(tool);
   }
 
   // ── Save & report another issue ────────────────────────────────────────────
 
-  // Called from the "+ Report another issue" button in annotation mode.
-  // Finalises the current screenshot, closes the overlay, and lets the user
-  // navigate to the next problem area before triggering a new capture.
   function saveAndReportAnother() {
     savedFormData = collectFormData();
-    capturedScreenshots.push(MarkupCanvas.getDataUrl());
+    var entry = { image: currentRawImage, annotations: MarkupCanvas.getState().annotations };
+    if (editingIndex != null && capturedScreenshots[editingIndex]) {
+      capturedScreenshots[editingIndex] = entry;
+    } else {
+      capturedScreenshots.push(entry);
+    }
+    editingIndex = null;
     MarkupCanvas.destroy();
     persistSession();
     softCloseOverlay();
     showToast('Screenshot saved — go to your next issue (other pages are fine).', 'success');
   }
 
-  // Called when the user is in submit mode and wants to add more instead.
-  // Nothing to save from the canvas (there isn't one); just return to session.
+  // Submit mode "+ Report another issue" — nothing live to save, just resume.
   function returnToSession() {
     savedFormData = collectFormData();
     persistSession();
@@ -370,80 +374,154 @@
 
   // Close overlay without discarding the session.
   function softCloseOverlay() {
-    var overlay = document.getElementById('sp-overlay');
-    if (overlay) overlay.remove();
-    document.body.style.overflow = '';
+    removeOverlayDom();
     submittingSession = false;
+    editingIndex      = null;
     updateTriggerState();
     showSessionBar();
   }
 
-  // ── Form data helpers ──────────────────────────────────────────────────────
+  // ── Screenshot management (edit / delete saved screenshots) ────────────────
 
-  function collectFormData() {
-    return {
-      title:       (document.getElementById('sp-title')       || {}).value || '',
-      description: (document.getElementById('sp-description') || {}).value || '',
-      name:        (document.getElementById('sp-name')        || {}).value || '',
-      email:       (document.getElementById('sp-email')       || {}).value || '',
-    };
+  function editScreenshot(i) {
+    var entry = capturedScreenshots[i];
+    if (!entry) return;
+    // Tear down the current overlay DOM without clearing the session.
+    MarkupCanvas.destroy();
+    removeOverlayDom();
+    submittingSession = false;
+    editingIndex      = i;
+    openOverlay(entry.image);
   }
 
-  function restoreFormData() {
-    if (!savedFormData) return;
-    var titleEl = document.getElementById('sp-title');
-    var descEl  = document.getElementById('sp-description');
-    var nameEl  = document.getElementById('sp-name');
-    var emailEl = document.getElementById('sp-email');
-    if (titleEl && savedFormData.title)       titleEl.value = savedFormData.title;
-    if (descEl  && savedFormData.description) descEl.value  = savedFormData.description;
-    if (nameEl  && savedFormData.name)        nameEl.value  = savedFormData.name;
-    if (emailEl && savedFormData.email)       emailEl.value = savedFormData.email;
+  function deleteScreenshot(i) {
+    if (i < 0 || i >= capturedScreenshots.length) return;
+    capturedScreenshots.splice(i, 1);
+    persistSession();
+    if (submittingSession) {
+      if (capturedScreenshots.length === 0) { closeOverlay(); return; }
+      var area = document.getElementById('sp-canvas-area');
+      if (area) { area.innerHTML = ''; area.appendChild(buildSubmitSummary()); }
+    }
+    refreshScreenshotInfo();
   }
 
-  // ── Screenshot counter + thumbnails ───────────────────────────────────────
+  // ── Thumbnails ─────────────────────────────────────────────────────────────
 
+  // Lazily flatten an entry to a small JPEG and assign it to imgEl, caching on
+  // the entry so we don't re-render every time.
+  function fillThumb(imgEl, entry, maxWidth) {
+    if (entry._thumb) { imgEl.src = entry._thumb; return; }
+    MarkupCanvas.flatten(entry.image, entry.annotations, { maxWidth: maxWidth || 240, quality: 0.7 })
+      .then(function (url) { entry._thumb = url; imgEl.src = url; })
+      .catch(function () { /* leave placeholder */ });
+  }
+
+  // Build a managed thumbnail (with Edit + Delete) for the review screen.
+  function buildManagedThumb(entry, i) {
+    var wrap = document.createElement('div');
+    wrap.className = 'sp-thumb-wrap sp-thumb-wrap-lg';
+    wrap.title     = 'Screenshot ' + (i + 1);
+
+    var img = document.createElement('img');
+    img.className = 'sp-submit-thumb';
+    img.alt = 'Screenshot ' + (i + 1);
+    fillThumb(img, entry, 360);
+    wrap.appendChild(img);
+
+    var label = document.createElement('span');
+    label.className = 'sp-thumb-label';
+    label.textContent = i + 1;
+    wrap.appendChild(label);
+
+    var edit = document.createElement('button');
+    edit.type = 'button';
+    edit.className = 'sp-thumb-edit';
+    edit.title = 'Edit annotations';
+    edit.textContent = '✏';
+    edit.addEventListener('click', function () { editScreenshot(i); });
+    wrap.appendChild(edit);
+
+    var del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'sp-thumb-delete';
+    del.title = 'Delete screenshot';
+    del.textContent = '✕';
+    del.addEventListener('click', function () { deleteScreenshot(i); });
+    wrap.appendChild(del);
+
+    return wrap;
+  }
+
+  function buildSubmitSummary() {
+    var n = capturedScreenshots.length;
+    var box = document.createElement('div');
+    box.className = 'sp-submit-summary';
+
+    var p = document.createElement('p');
+    p.className = 'sp-submit-summary-count';
+    p.textContent = n + ' screenshot' + (n !== 1 ? 's' : '') + ' ready — edit or remove any below';
+    box.appendChild(p);
+
+    var thumbs = document.createElement('div');
+    thumbs.className = 'sp-submit-thumbs';
+    capturedScreenshots.forEach(function (entry, i) {
+      thumbs.appendChild(buildManagedThumb(entry, i));
+    });
+    box.appendChild(thumbs);
+    return box;
+  }
+
+  // Sidebar counter + thumbnail strip (annotation mode).
   function refreshScreenshotInfo() {
     var info    = document.getElementById('sp-screenshot-info');
     var counter = document.getElementById('sp-screenshot-counter');
     var strip   = document.getElementById('sp-thumbnail-strip');
     if (!info || !counter || !strip) return;
 
-    var savedCount = capturedScreenshots.length;
-    if (savedCount === 0) {
+    var savedCount   = capturedScreenshots.length;
+    var isNewCapture = (!submittingSession && editingIndex == null);
+
+    if (savedCount === 0 && !isNewCapture) {
+      info.style.display = 'none';
+      return;
+    }
+    // Nothing to show in a brand-new single capture until something is saved.
+    if (savedCount === 0 && isNewCapture) {
       info.style.display = 'none';
       return;
     }
 
-    var total = submittingSession ? savedCount : savedCount + 1;
+    var total = isNewCapture ? savedCount + 1 : savedCount;
     info.style.display = 'block';
     counter.textContent = total + ' screenshot' + (total !== 1 ? 's' : '');
 
     strip.innerHTML = '';
-    capturedScreenshots.forEach(function (dataUrl, i) {
-      var wrap      = document.createElement('div');
+    capturedScreenshots.forEach(function (entry, i) {
+      var wrap = document.createElement('div');
       wrap.className = 'sp-thumb-wrap';
-      wrap.title     = 'Screenshot ' + (i + 1) + ' (saved)';
+      if (i === editingIndex) wrap.className += ' sp-thumb-editing';
+      wrap.title = 'Screenshot ' + (i + 1);
 
-      var img       = document.createElement('img');
-      img.src       = dataUrl;
+      var img = document.createElement('img');
       img.className = 'sp-thumbnail';
-      img.alt       = 'Screenshot ' + (i + 1);
+      img.alt = 'Screenshot ' + (i + 1);
+      fillThumb(img, entry, 160);
+      wrap.appendChild(img);
 
-      var label       = document.createElement('span');
+      var label = document.createElement('span');
       label.className = 'sp-thumb-label';
       label.textContent = i + 1;
-
-      wrap.appendChild(img);
       wrap.appendChild(label);
+
       strip.appendChild(wrap);
     });
 
-    if (!submittingSession) {
-      var curWrap       = document.createElement('div');
+    if (isNewCapture) {
+      var curWrap = document.createElement('div');
       curWrap.className = 'sp-thumb-wrap sp-thumb-current';
-      curWrap.title     = 'Screenshot ' + total + ' (current)';
-      var curLabel      = document.createElement('span');
+      curWrap.title = 'Screenshot ' + total + ' (current)';
+      var curLabel = document.createElement('span');
       curLabel.className = 'sp-thumb-label';
       curLabel.textContent = total + ' ✏';
       curWrap.appendChild(curLabel);
@@ -498,14 +576,9 @@
     var toolBtns = document.querySelectorAll('.sp-tool[data-tool]');
     toolBtns.forEach(function (btn) {
       btn.addEventListener('click', function () {
-        toolBtns.forEach(function (b) { b.classList.remove('sp-tool-active'); });
-        btn.classList.add('sp-tool-active');
-        MarkupCanvas.setTool(btn.getAttribute('data-tool'));
+        setActiveTool(btn.getAttribute('data-tool'));
       });
     });
-
-    var undoBtn = document.getElementById('sp-undo');
-    if (undoBtn) undoBtn.addEventListener('click', function () { MarkupCanvas.undo(); });
   }
 
   // ── "Report another issue" button ─────────────────────────────────────────
@@ -513,8 +586,34 @@
   function wireAddIssue() {
     var btn = document.getElementById('sp-add-issue');
     if (!btn) return;
-    // In submit mode there is no canvas to finalise — just return to session.
     btn.addEventListener('click', submittingSession ? returnToSession : saveAndReportAnother);
+  }
+
+  // ── Form data helpers ──────────────────────────────────────────────────────
+
+  function collectFormData() {
+    return {
+      title:       (document.getElementById('sp-title')       || {}).value || '',
+      description: (document.getElementById('sp-description') || {}).value || '',
+      name:        (document.getElementById('sp-name')        || {}).value || '',
+      email:       (document.getElementById('sp-email')       || {}).value || '',
+      replyTo:     (document.getElementById('sp-reply-to')    || {}).value || '',
+    };
+  }
+
+  function restoreFormData() {
+    if (!savedFormData) return;
+    var map = {
+      'sp-title':       savedFormData.title,
+      'sp-description': savedFormData.description,
+      'sp-name':        savedFormData.name,
+      'sp-email':       savedFormData.email,
+      'sp-reply-to':    savedFormData.replyTo,
+    };
+    Object.keys(map).forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el && map[id]) el.value = map[id];
+    });
   }
 
   // ── Form submit ────────────────────────────────────────────────────────────
@@ -525,15 +624,13 @@
   }
 
   function doSubmit() {
-    var titleEl = document.getElementById('sp-title');
-    var descEl  = document.getElementById('sp-description');
-    var nameEl  = document.getElementById('sp-name');
-    var emailEl = document.getElementById('sp-email');
-
-    var title       = titleEl  ? titleEl.value.trim()  : '';
-    var description = descEl   ? descEl.value.trim()   : '';
-    var name        = nameEl   ? nameEl.value.trim()   : '';
-    var email       = emailEl  ? emailEl.value.trim()  : '';
+    var title       = (document.getElementById('sp-title')       || {}).value || '';
+    var description = (document.getElementById('sp-description') || {}).value || '';
+    var name        = (document.getElementById('sp-name')        || {}).value || '';
+    var email       = (document.getElementById('sp-email')       || {}).value || '';
+    var replyTo     = (document.getElementById('sp-reply-to')    || {}).value || '';
+    title = title.trim(); description = description.trim();
+    name = name.trim(); email = email.trim(); replyTo = replyTo.trim();
 
     hideError();
 
@@ -545,73 +642,128 @@
       showError('Please enter a valid email address.');
       return;
     }
+    if (replyTo && !validEmail(replyTo)) {
+      showError('The reply-to email is not valid.');
+      return;
+    }
+
+    // Build the list of entries to flatten WITHOUT mutating the persistent
+    // array (so a failed submit can be retried without duplicating).
+    var entries = capturedScreenshots.slice();
+    if (!submittingSession) {
+      var liveEntry = { image: currentRawImage, annotations: MarkupCanvas.getState().annotations };
+      if (editingIndex != null && capturedScreenshots[editingIndex]) entries[editingIndex] = liveEntry;
+      else entries.push(liveEntry);
+    }
+
+    if (entries.length === 0) {
+      showError('Please capture at least one screenshot.');
+      return;
+    }
 
     var submitBtn = document.getElementById('sp-submit');
     submitBtn.disabled    = true;
     submitBtn.textContent = 'Submitting…';
 
-    // In submit mode all screenshots are already in capturedScreenshots.
-    // In annotation mode we append the current canvas as the final screenshot.
-    var allScreenshots = submittingSession
-      ? capturedScreenshots.slice()
-      : capturedScreenshots.concat([MarkupCanvas.getDataUrl()]);
+    var finalDescription = description + compilePinComments(entries);
 
-    var payload = {
-      title:                title,
-      description:          description,
-      submitter_name:       name,
-      submitter_email:      email,
-      page_url:             window.location.href,
-      browser:              navigator.userAgent,
-      device:               navigator.userAgent,
-      viewport:             window.innerWidth + 'x' + window.innerHeight,
-      annotated_screenshots: allScreenshots,
-    };
+    Promise.all(entries.map(function (en) {
+      return MarkupCanvas.flatten(en.image, en.annotations, { maxWidth: 1600, quality: 0.85 });
+    })).then(function (jpegs) {
+      var payload = {
+        title:                 title,
+        description:           finalDescription,
+        submitter_name:        name,
+        submitter_email:       email,
+        reply_to_email:        replyTo,
+        page_url:              window.location.href,
+        browser:               navigator.userAgent,
+        device:                navigator.userAgent,
+        viewport:              window.innerWidth + 'x' + window.innerHeight,
+        annotated_screenshots: jpegs,
+      };
 
-    fetch(cfg.restUrl, {
-      method:  'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-WP-Nonce':   cfg.nonce,
-      },
-      body: JSON.stringify(payload),
-    })
-    .then(function (res) {
+      return fetch(cfg.restUrl, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json', 'X-WP-Nonce': cfg.nonce },
+        body: JSON.stringify(payload),
+      });
+    }).then(function (res) {
       if (!res.ok) {
         return res.json().catch(function () { return {}; }).then(function (data) {
           throw new Error(data.message || data.error || 'Submission failed (' + res.status + ')');
         });
       }
       return res.json();
-    })
-    .then(function () {
-      closeOverlay();
-      showToast('Submitted — thanks!', 'success');
-    })
-    .catch(function (err) {
+    }).then(function (data) {
+      endSession();
+      showSuccessPanel(data && data.signup_url);
+    }).catch(function (err) {
       submitBtn.disabled    = false;
       submitBtn.textContent = 'Submit report';
       showError(err.message || 'Submission failed. Please try again.');
     });
   }
 
-  // ── Close (hard — discards entire session) ────────────────────────────────
+  // Compile pin comments across all screenshots into a numbered text block.
+  function compilePinComments(entries) {
+    var lines = [];
+    entries.forEach(function (en, si) {
+      var pins = (en.annotations || []).filter(function (a) { return a.type === 'pin' && a.comment; });
+      if (!pins.length) return;
+      pins.sort(function (a, b) { return a.num - b.num; });
+      lines.push('Screenshot ' + (si + 1) + ':');
+      pins.forEach(function (p) { lines.push('  ' + p.num + '. ' + p.comment); });
+    });
+    return lines.length ? '\n\n--- Pinned comments ---\n' + lines.join('\n') : '';
+  }
+
+  // ── Success panel ───────────────────────────────────────────────────────────
+
+  function showSuccessPanel(signupUrl) {
+    var overlay = document.getElementById('sp-overlay');
+    if (!overlay) { showToast('Submitted — thanks!', 'success'); return; }
+    var cta = signupUrl
+      ? '<a class="sp-success-cta" href="' + signupUrl + '" target="_blank" rel="noopener">Create an account →</a>'
+      : '';
+    overlay.innerHTML =
+      '<div class="sp-success">' +
+      '  <div class="sp-success-icon">✓</div>' +
+      '  <h2 class="sp-success-title">Report submitted — thank you!</h2>' +
+      '  <p class="sp-success-body">Create a free account to track this ticket’s progress and reply to our team.</p>' +
+      cta +
+      '  <button type="button" id="sp-success-done" class="sp-success-dismiss">Close</button>' +
+      '</div>';
+    var done = document.getElementById('sp-success-done');
+    if (done) done.addEventListener('click', removeOverlayDom);
+  }
+
+  // ── Close ────────────────────────────────────────────────────────────────────
 
   function wireClose() {
     var closeBtn = document.getElementById('sp-close');
     if (closeBtn) closeBtn.addEventListener('click', closeOverlay);
   }
 
-  function closeOverlay() {
+  function removeOverlayDom() {
     var overlay = document.getElementById('sp-overlay');
     if (overlay) overlay.remove();
     document.body.style.overflow = '';
-    if (!submittingSession) MarkupCanvas.destroy();
+  }
+
+  // Hard close — discards the entire session.
+  function closeOverlay() {
+    removeOverlayDom();
+    endSession();
+  }
+
+  function endSession() {
+    MarkupCanvas.destroy();
     capturedScreenshots = [];
     savedFormData       = null;
+    editingIndex        = null;
     submittingSession   = false;
-    // End of session — drop the saved draft and stop sharing so the browser's
-    // capture indicator clears.
+    currentRawImage     = null;
     clearSession();
     releaseDisplayStream();
     hideSessionBar();

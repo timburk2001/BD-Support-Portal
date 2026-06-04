@@ -128,6 +128,19 @@ export default async function AdminTicketDetailPage({ params }: PageProps) {
                     '—'
                   )}
                 </dd>
+                {ticket.reply_to_email && (
+                  <>
+                    <dt className="text-muted-foreground">Reply-to</dt>
+                    <dd>
+                      <a
+                        href={`mailto:${ticket.reply_to_email}`}
+                        className="text-foreground hover:underline"
+                      >
+                        {ticket.reply_to_email}
+                      </a>
+                    </dd>
+                  </>
+                )}
               </dl>
             </CardContent>
           </Card>

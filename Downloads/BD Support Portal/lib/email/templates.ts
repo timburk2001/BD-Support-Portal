@@ -149,3 +149,26 @@ export function clientStaffReplyHtml(p: ClientStaffReplyProps): string {
 
   return shell(body, 'You received this because you submitted a support ticket.')
 }
+
+// ─── Template 4: submitter receipt + create-account CTA ──────────────────────
+
+interface SubmitterReceiptProps {
+  title: string
+  signupUrl: string
+}
+
+export function submitterReceiptHtml(p: SubmitterReceiptProps): string {
+  const body = `
+    <h2 style="color:#18181b;font-size:18px;font-weight:600;margin:0 0 6px;">We received your request</h2>
+    <p style="color:#71717a;font-size:13px;margin:0 0 24px;">Thanks for reaching out — your ticket has been logged and our team will take a look shortly.</p>
+
+    <table cellpadding="0" cellspacing="0" border="0" style="width:100%;margin-bottom:20px;">
+      ${row('Ticket', `<strong>${esc(p.title)}</strong>`)}
+    </table>
+
+    <p style="color:#52525b;font-size:13px;line-height:1.6;margin:0;">Create a free account to track this ticket's progress, get email updates, and reply to our team:</p>
+
+    ${btn(p.signupUrl, 'Create your account →')}`
+
+  return shell(body, 'You received this because you submitted a support request.')
+}

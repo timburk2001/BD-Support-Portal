@@ -12,6 +12,7 @@ interface TicketRow {
   title: string
   submitted_by: string | null
   submitter_email: string | null
+  reply_to_email: string | null
 }
 
 export async function updateTicketStatus(ticketId: string, status: string): Promise<void> {
@@ -21,7 +22,7 @@ export async function updateTicketStatus(ticketId: string, status: string): Prom
   // Fetch current row so we can check whether status actually changed
   const { data: ticket } = await admin
     .from('tickets')
-    .select('status, title, submitted_by, submitter_email')
+    .select('status, title, submitted_by, submitter_email, reply_to_email')
     .eq('id', ticketId)
     .single()
 
@@ -40,6 +41,7 @@ export async function updateTicketStatus(ticketId: string, status: string): Prom
       status,
       submittedBy: row.submitted_by,
       submitterEmail: row.submitter_email,
+      replyToEmail: row.reply_to_email,
     }).catch((e) => console.error('[email] status-change notification failed:', e))
   }
 }
@@ -73,7 +75,7 @@ export async function addAdminMessage(
     ;(async () => {
       const { data: ticket } = await admin
         .from('tickets')
-        .select('title, submitted_by, submitter_email')
+        .select('title, submitted_by, submitter_email, reply_to_email')
         .eq('id', ticketId)
         .single()
 
@@ -86,6 +88,7 @@ export async function addAdminMessage(
         excerpt: body.slice(0, 300),
         submittedBy: t.submitted_by,
         submitterEmail: t.submitter_email,
+        replyToEmail: t.reply_to_email,
       })
     })().catch((e) => console.error('[email] staff-reply notification failed:', e))
   }
