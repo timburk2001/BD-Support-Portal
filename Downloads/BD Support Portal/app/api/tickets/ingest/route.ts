@@ -43,6 +43,12 @@ const IngestSchema = z.object({
     .string()
     .optional()
     .transform((v) => v || null),
+  // New: array of screenshots from multi-issue plugin submissions.
+  // Takes precedence over the singular field when present.
+  annotated_screenshots: z
+    .array(z.string())
+    .optional()
+    .transform((v) => (v && v.length > 0 ? v : null)),
 })
 
 export async function POST(request: NextRequest) {
@@ -120,7 +126,15 @@ export async function POST(request: NextRequest) {
     submitter_email,
     submitter_name,
     annotated_screenshot,
+    annotated_screenshots,
   } = parsed.data
+
+  // Normalise: prefer the array field; fall back to the singular field.
+  const allScreenshots: string[] = annotated_screenshots
+    ? annotated_screenshots
+    : annotated_screenshot
+      ? [annotated_screenshot]
+      : []
 
   // ── 7. Resolve submitted_by (email → profile → site membership check) ───────
   let submittedBy: string | null = null
@@ -169,11 +183,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Failed to create ticket' }, { status: 500 })
   }
 
-  // ── 9. Upload annotated screenshot ──────────────────────────────────────────
-  if (annotated_screenshot) {
+  // ── 9. Upload annotated screenshot(s) ──────────────────────────────────────
+  for (let i = 0; i < allScreenshots.length; i++) {
     try {
-      let base64Data = annotated_screenshot
-      let contentType = 'image/png'
+      let base64Data = allScreenshots[i]
+      let contentType = 'image/jpeg'
 
       // Strip optional data-URL prefix (data:image/jpeg;base64,<data>)
       const match = base64Data.match(/^data:(image\/[^;]+);base64,(.+)$/)
@@ -183,14 +197,16 @@ export async function POST(request: NextRequest) {
       }
 
       const buffer = Buffer.from(base64Data, 'base64')
-      const storagePath = `tickets/${ticket.id}/screenshot.png`
+      // screenshot.jpg for single; screenshot-1.jpg, screenshot-2.jpg … for multi
+      const suffix = allScreenshots.length > 1 ? `-${i + 1}` : ''
+      const storagePath = `tickets/${ticket.id}/screenshot${suffix}.jpg`
 
       const { error: uploadError } = await admin.storage
         .from('ticket-attachments')
         .upload(storagePath, buffer, { contentType, upsert: false })
 
       if (uploadError) {
-        console.error('[ingest] screenshot upload failed:', uploadError.message)
+        console.error(`[ingest] screenshot ${i + 1} upload failed:`, uploadError.message)
       } else {
         await admin.from('ticket_attachments').insert({
           ticket_id: ticket.id,
@@ -200,7 +216,7 @@ export async function POST(request: NextRequest) {
         })
       }
     } catch (err) {
-      console.error('[ingest] screenshot processing error:', err)
+      console.error(`[ingest] screenshot ${i + 1} processing error:`, err)
     }
   }
 
@@ -220,7 +236,7 @@ export async function POST(request: NextRequest) {
       siteName: (site as { name: string } | null)?.name ?? 'Unknown site',
       method: 'visual',
       description,
-      attachmentCount: annotated_screenshot ? 1 : 0,
+      attachmentCount: allScreenshots.length,
     })
   })().catch((e) => console.error('[email] admin notification failed:', e))
 

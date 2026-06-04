@@ -43,14 +43,39 @@ export async function addSiteMember(
 
   const admin = createAdminClient()
 
-  const { data: profile } = await admin
+  // ── 1. Try public.profiles first (covers users who signed up via portal) ──
+  let { data: profile } = await admin
     .from('profiles')
     .select('id')
     .eq('email', email)
-    .single()
+    .maybeSingle()
 
-  if (!profile) return { error: `No user found with email ${email}.` }
+  // ── 2. Fall back to auth.users via RPC ─────────────────────────────────────
+  // Users who existed before the on_auth_user_created trigger was added
+  // (migration 0003) will have no profiles row.  The RPC reads auth.users
+  // directly (SECURITY DEFINER) and auto-creates the missing profile so
+  // future lookups work normally.
+  if (!profile) {
+    const { data: authId, error: rpcError } = await admin
+      .rpc('get_auth_user_id_by_email', { user_email: email })
 
+    if (rpcError) return { error: `Lookup failed: ${rpcError.message}` }
+    if (!authId) {
+      return {
+        error: `No account found for ${email}. Ask them to sign up at the portal first.`,
+      }
+    }
+
+    // Auto-create the missing profile so future queries hit profiles directly.
+    await admin
+      .from('profiles')
+      .insert({ id: authId as string, email, full_name: null })
+      .throwOnError()
+
+    profile = { id: authId as string }
+  }
+
+  // ── 3. Insert site membership ───────────────────────────────────────────────
   const { error } = await admin
     .from('site_members')
     .insert({ site_id: siteId, user_id: profile.id })

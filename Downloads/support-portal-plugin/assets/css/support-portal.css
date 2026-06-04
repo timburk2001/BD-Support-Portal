@@ -278,6 +278,106 @@
 .sp-submit:hover   { background: #1e40af; }
 .sp-submit:disabled { opacity: 0.6; cursor: not-allowed; }
 
+/* ── Add-screenshot button ───────────────────────────────────────────────── */
+
+.sp-add-screenshot-btn {
+  margin-top: 8px;
+  width: 100%;
+  padding: 7px 12px;
+  background: #f9fafb;
+  color: #374151;
+  border: 1px dashed #d1d5db;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.1s, border-color 0.1s, color 0.1s;
+  text-align: center;
+}
+
+.sp-add-screenshot-btn:hover {
+  background: #eff6ff;
+  border-color: #3b82f6;
+  color: #1d4ed8;
+}
+
+.sp-add-screenshot-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* ── Screenshot counter + thumbnails ─────────────────────────────────────── */
+
+.sp-screenshot-info {
+  padding: 8px 20px;
+  background: #fffbeb;
+  border-bottom: 1px solid #fde68a;
+}
+
+.sp-screenshot-counter {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #92400e;
+  margin-bottom: 6px;
+}
+
+.sp-thumbnail-strip {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.sp-thumb-wrap {
+  position: relative;
+  width: 52px;
+  height: 38px;
+  border-radius: 4px;
+  overflow: hidden;
+  border: 2px solid #d1d5db;
+  background: #f3f4f6;
+  flex-shrink: 0;
+}
+
+.sp-thumb-wrap.sp-thumb-current {
+  border-color: #3b82f6;
+  background: #eff6ff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sp-thumbnail {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.sp-thumb-label {
+  position: absolute;
+  bottom: 2px;
+  right: 3px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  padding: 1px 3px;
+  border-radius: 2px;
+  line-height: 1;
+}
+
+.sp-thumb-current .sp-thumb-label {
+  position: static;
+  background: none;
+  color: #1d4ed8;
+  font-size: 13px;
+  padding: 0;
+}
+
 /* ── Floating text-note input ────────────────────────────────────────────── */
 
 .sp-text-input {
