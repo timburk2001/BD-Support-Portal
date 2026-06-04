@@ -76,12 +76,6 @@
   box-sizing: border-box;
 }
 
-.sp-canvas-wrap {
-  position: relative;
-  display: inline-block;
-  line-height: 0;
-}
-
 #sp-markup-canvas {
   display: block;
   max-width: 100%;
@@ -90,36 +84,6 @@
   box-shadow: 0 2px 24px rgba(0, 0, 0, 0.6);
   border-radius: 2px;
 }
-
-/* ── Per-annotation delete badges ────────────────────────────────────────── */
-
-.sp-badge-layer {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-}
-
-.sp-del-badge {
-  position: absolute;
-  transform: translate(-50%, -50%);
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: #ef4444;
-  color: #fff;
-  border: 2px solid #fff;
-  border-radius: 50%;
-  font: 700 13px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  cursor: pointer;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
-  pointer-events: auto;
-  z-index: 2;
-}
-
-.sp-del-badge:hover { background: #dc2626; }
 
 /* ── Sidebar ─────────────────────────────────────────────────────────────── */
 
@@ -224,6 +188,101 @@
   border-color: #3b82f6;
   color: #1d4ed8;
 }
+
+/* ── Annotation list ─────────────────────────────────────────────────────── */
+
+.sp-annotation-list {
+  padding: 10px 20px 12px;
+  border-bottom: 1px solid #e5e7eb;
+  background: #fafafa;
+}
+
+.sp-annotation-list-label {
+  display: block;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: #9ca3af;
+  margin-bottom: 8px;
+}
+
+.sp-ann-items {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sp-ann-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #374151;
+}
+
+.sp-ann-num {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  background: #ef4444;
+  color: #fff;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font: 700 10px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  margin-top: 1px;
+}
+
+.sp-ann-text {
+  flex: 1;
+  word-break: break-word;
+}
+
+.sp-ann-edit-input {
+  flex: 1;
+  padding: 2px 6px;
+  font-size: 12px;
+  font-family: inherit;
+  border: 1px solid #3b82f6;
+  border-radius: 4px;
+  outline: none;
+  background: #fff;
+  color: #111827;
+  box-shadow: 0 0 0 2px rgba(59,130,246,0.15);
+}
+
+.sp-ann-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.sp-ann-edit,
+.sp-ann-del {
+  padding: 1px 6px;
+  font-size: 10px;
+  font-weight: 600;
+  font-family: inherit;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  cursor: pointer;
+  line-height: 1.4;
+  background: #fff;
+  transition: background 0.1s, color 0.1s, border-color 0.1s;
+}
+
+.sp-ann-edit         { color: #374151; }
+.sp-ann-edit:hover   { background: #f3f4f6; border-color: #9ca3af; }
+
+.sp-ann-del          { color: #dc2626; border-color: #fecaca; }
+.sp-ann-del:hover    { background: #fef2f2; border-color: #f87171; }
 
 /* ── Form ────────────────────────────────────────────────────────────────── */
 

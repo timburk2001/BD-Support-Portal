@@ -269,10 +269,7 @@
     return [
       '<div class="sp-inner">',
       '  <div id="sp-canvas-area" class="sp-canvas-area">',
-      '    <div class="sp-canvas-wrap">',
-      '      <canvas id="sp-markup-canvas"></canvas>',
-      '      <div id="sp-badge-layer" class="sp-badge-layer"></div>',
-      '    </div>',
+      '    <canvas id="sp-markup-canvas"></canvas>',
       '  </div>',
       '  <aside class="sp-sidebar" role="complementary">',
 
@@ -304,14 +301,19 @@
       '      </div>',
       '    </div>',
 
+      '    <div id="sp-annotation-list" class="sp-annotation-list" style="display:none">',
+      '      <span class="sp-annotation-list-label">Annotations</span>',
+      '      <ul id="sp-ann-items" class="sp-ann-items"></ul>',
+      '    </div>',
+
       '    <form id="sp-form" class="sp-form" novalidate>',
       '      <div class="sp-field">',
       '        <label for="sp-title">Title <span class="sp-req" aria-hidden="true">*</span></label>',
       '        <input type="text" id="sp-title" name="title" maxlength="120" placeholder="Brief summary" autocomplete="off" required />',
       '      </div>',
       '      <div class="sp-field">',
-      '        <label for="sp-description">Description <span class="sp-req" aria-hidden="true">*</span></label>',
-      '        <textarea id="sp-description" name="description" rows="4" placeholder="Steps to reproduce, what you expected, what happened…" required></textarea>',
+      '        <label for="sp-description">Description <span class="sp-optional">(optional)</span></label>',
+      '        <textarea id="sp-description" name="description" rows="3" placeholder="Any extra context beyond your annotations…"></textarea>',
       '      </div>',
       '      <div class="sp-field">',
       '        <label for="sp-name">Name <span class="sp-req" aria-hidden="true">*</span></label>',
@@ -337,7 +339,92 @@
   // ── Canvas init ────────────────────────────────────────────────────────────
 
   function initCanvas(imageDataUrl, annotations) {
-    MarkupCanvas.init(document.getElementById('sp-markup-canvas'), imageDataUrl, annotations);
+    MarkupCanvas.init(document.getElementById('sp-markup-canvas'), imageDataUrl, annotations, refreshAnnotationList);
+  }
+
+  // ── Annotation list (sidebar) ──────────────────────────────────────────────
+  // Called by MarkupCanvas via the onchange callback whenever annotations change.
+
+  function refreshAnnotationList(annotations) {
+    var section = document.getElementById('sp-annotation-list');
+    var items   = document.getElementById('sp-ann-items');
+    if (!section || !items) return;
+
+    if (!annotations || annotations.length === 0) {
+      section.style.display = 'none';
+      return;
+    }
+
+    section.style.display = 'block';
+    items.innerHTML = '';
+
+    annotations.forEach(function (ann, i) {
+      var li = document.createElement('li');
+      li.className = 'sp-ann-item';
+
+      var num = document.createElement('span');
+      num.className = 'sp-ann-num';
+      num.textContent = ann.num;
+      li.appendChild(num);
+
+      var text = document.createElement('span');
+      text.className = 'sp-ann-text';
+      text.textContent = ann.comment || '';
+      li.appendChild(text);
+
+      var actions = document.createElement('span');
+      actions.className = 'sp-ann-actions';
+
+      var editBtn = document.createElement('button');
+      editBtn.type = 'button';
+      editBtn.className = 'sp-ann-edit';
+      editBtn.textContent = 'Edit';
+      (function (idx, textEl) {
+        editBtn.addEventListener('click', function () {
+          var input = document.createElement('input');
+          input.type = 'text';
+          input.className = 'sp-ann-edit-input';
+          var current = MarkupCanvas.getState().annotations[idx];
+          input.value = current ? current.comment : '';
+          li.replaceChild(input, textEl);
+          input.focus();
+          var done = false;
+          function commit() {
+            if (done) return;
+            done = true;
+            var newComment = input.value.trim();
+            if (newComment) {
+              MarkupCanvas.editAnnotationComment(idx, newComment);
+              // onchange will rebuild the list
+            } else {
+              // Still require a comment — restore the old value
+              MarkupCanvas.editAnnotationComment(idx, current ? current.comment : '');
+            }
+          }
+          input.addEventListener('keydown', function (ev) {
+            if (ev.key === 'Enter')  { ev.preventDefault(); commit(); }
+            if (ev.key === 'Escape') { ev.preventDefault(); done = true; refreshAnnotationList(MarkupCanvas.getState().annotations); }
+          });
+          input.addEventListener('blur', commit);
+        });
+      })(i, text);
+      actions.appendChild(editBtn);
+
+      var delBtn = document.createElement('button');
+      delBtn.type = 'button';
+      delBtn.className = 'sp-ann-del';
+      delBtn.textContent = 'Delete';
+      (function (idx) {
+        delBtn.addEventListener('click', function () {
+          MarkupCanvas.removeAnnotationAt(idx);
+          // onchange will rebuild the list
+        });
+      })(i);
+      actions.appendChild(delBtn);
+
+      li.appendChild(actions);
+      items.appendChild(li);
+    });
   }
 
   function setActiveTool(tool) {
@@ -634,7 +721,7 @@
 
     hideError();
 
-    if (!title || !description || !name || !email) {
+    if (!title || !name || !email) {
       showError('Please fill in all required fields.');
       return;
     }
@@ -665,7 +752,7 @@
     submitBtn.disabled    = true;
     submitBtn.textContent = 'Submitting…';
 
-    var finalDescription = description + compilePinComments(entries);
+    var finalDescription = description + compileAnnotationComments(entries);
 
     Promise.all(entries.map(function (en) {
       return MarkupCanvas.flatten(en.image, en.annotations, { maxWidth: 1600, quality: 0.85 });
@@ -705,17 +792,17 @@
     });
   }
 
-  // Compile pin comments across all screenshots into a numbered text block.
-  function compilePinComments(entries) {
+  // Compile annotation comments from ALL types across all screenshots.
+  function compileAnnotationComments(entries) {
     var lines = [];
     entries.forEach(function (en, si) {
-      var pins = (en.annotations || []).filter(function (a) { return a.type === 'pin' && a.comment; });
-      if (!pins.length) return;
-      pins.sort(function (a, b) { return a.num - b.num; });
+      var anns = (en.annotations || []).filter(function (a) { return a.comment; });
+      if (!anns.length) return;
+      anns.sort(function (a, b) { return (a.num || 0) - (b.num || 0); });
       lines.push('Screenshot ' + (si + 1) + ':');
-      pins.forEach(function (p) { lines.push('  ' + p.num + '. ' + p.comment); });
+      anns.forEach(function (a) { lines.push('  ' + (a.num || '•') + '. ' + a.comment); });
     });
-    return lines.length ? '\n\n--- Pinned comments ---\n' + lines.join('\n') : '';
+    return lines.length ? '\n\n--- Annotation comments ---\n' + lines.join('\n') : '';
   }
 
   // ── Success panel ───────────────────────────────────────────────────────────

@@ -7,7 +7,7 @@ import { sendAdminNewTicketEmail, sendSubmitterTicketReceiptEmail } from '@/lib/
 
 const IngestSchema = z.object({
   title: z.string().min(1, 'title is required').max(120, 'title must be ≤ 120 chars'),
-  description: z.string().min(1, 'description is required'),
+  description: z.string().optional().transform((v) => v ?? ''),
   page_url: z
     .string()
     .max(2048)

@@ -3,43 +3,40 @@
  * Exposed as a global so support-portal.js can call it after enqueue ordering.
  *
  * Tools: pin (numbered comment), rect, circle, arrow.
- * Annotations are stored in IMAGE-PIXEL coordinates (the canvas is sized to the
- * captured image, then CSS-scaled for display), so flattening at any size needs
- * no coordinate rescaling. Per-annotation deletion is handled by DOM "×" badges
- * rendered in an overlay layer (#sp-badge-layer) — they are never drawn into the
- * canvas, so they're naturally excluded from the exported JPEG.
+ * ALL annotation types carry { num, comment } — comments are required and
+ * displayed in the sidebar annotation list, not on the canvas itself.
+ * Annotations are stored in IMAGE-PIXEL coordinates (canvas sized to the
+ * captured image, CSS-scaled for display), so flattening at any size needs
+ * no coordinate rescaling.
  */
 var MarkupCanvas = (function () {
   'use strict';
 
-  var MAX_W = 1600;        // cap on canvas internal width (keeps payload/storage sane)
+  var MAX_W = 1600;
   var RED   = '#ef4444';
 
   var canvas, ctx, bgImage;
-  var badgeLayer = null;
   var annotations = [];
-  var pinSeq = 0;
-  var currentTool = 'rect';
+  var annSeq = 0;           // monotonically increasing across ALL annotation types
+  var currentTool = 'pin';
   var isDrawing = false;
-  var dragStart = null;    // { x, y } in canvas (image) coords
+  var dragStart = null;     // { x, y } in canvas (image) coords
   var activeTextInput = null;
-  var resizeRAF = null;
+  var onchange = null;      // callback(annotations[]) fired after every mutation
 
   var DRAG_TOOLS = { rect: 1, circle: 1, arrow: 1 };
 
   // ── Public API ────────────────────────────────────────────────────────────
 
-  function init(canvasEl, imageDataUrl, initialAnnotations) {
-    canvas = canvasEl;
-    ctx    = canvas.getContext('2d');
+  function init(canvasEl, imageDataUrl, initialAnnotations, onchangeFn) {
+    canvas   = canvasEl;
+    ctx      = canvas.getContext('2d');
+    onchange = onchangeFn || null;
 
     annotations = Array.isArray(initialAnnotations) ? initialAnnotations.map(cloneAnn) : [];
-    pinSeq = annotations.reduce(function (m, a) {
-      return a.type === 'pin' ? Math.max(m, a.num) : m;
+    annSeq = annotations.reduce(function (m, a) {
+      return a.num ? Math.max(m, a.num) : m;
     }, 0);
-
-    badgeLayer = document.getElementById('sp-badge-layer');
-    if (badgeLayer) badgeLayer.addEventListener('click', onBadgeClick);
 
     bgImage = new Image();
     bgImage.onload = function () {
@@ -48,8 +45,9 @@ var MarkupCanvas = (function () {
       var ratio   = (bgImage.naturalHeight || 1) / natural;
       canvas.width  = w;
       canvas.height = Math.round(w * ratio);
-      // No inline width/height — CSS (max-width:100%; height:auto) scales it.
       redraw();
+      // Populate the sidebar with any initial annotations loaded for editing.
+      if (onchange) onchange(annotations.map(cloneAnn));
     };
     bgImage.src = imageDataUrl;
 
@@ -60,7 +58,6 @@ var MarkupCanvas = (function () {
     canvas.addEventListener('touchstart', onTouchStart, { passive: false });
     canvas.addEventListener('touchmove',  onTouchMove,  { passive: false });
     canvas.addEventListener('touchend',   onTouchEnd,   { passive: false });
-    window.addEventListener('resize', onResize);
   }
 
   function setTool(tool) {
@@ -78,6 +75,24 @@ var MarkupCanvas = (function () {
     return { annotations: annotations.map(cloneAnn) };
   }
 
+  // Remove the annotation at index i; fires onchange.
+  function removeAnnotationAt(i) {
+    if (isNaN(i) || i < 0 || i >= annotations.length) return;
+    annotations.splice(i, 1);
+    annSeq = annotations.reduce(function (m, a) {
+      return a.num ? Math.max(m, a.num) : m;
+    }, 0);
+    redraw();
+    if (onchange) onchange(annotations.map(cloneAnn));
+  }
+
+  // Update the comment on annotation i; fires onchange.
+  function editAnnotationComment(i, comment) {
+    if (i < 0 || i >= annotations.length) return;
+    annotations[i].comment = comment;
+    if (onchange) onchange(annotations.map(cloneAnn));
+  }
+
   function destroy() {
     dismissTextInput();
     if (canvas) {
@@ -89,24 +104,17 @@ var MarkupCanvas = (function () {
       canvas.removeEventListener('touchmove',  onTouchMove);
       canvas.removeEventListener('touchend',   onTouchEnd);
     }
-    window.removeEventListener('resize', onResize);
-    if (badgeLayer) {
-      badgeLayer.removeEventListener('click', onBadgeClick);
-      badgeLayer.innerHTML = '';
-    }
     annotations = [];
-    pinSeq      = 0;
+    annSeq      = 0;
     isDrawing   = false;
     dragStart   = null;
+    onchange    = null;
     canvas      = null;
     ctx         = null;
     bgImage     = null;
-    badgeLayer  = null;
   }
 
   // Off-screen flatten of image + annotations → JPEG data URL (Promise).
-  // Annotations are authored at width = min(naturalWidth, MAX_W); we scale the
-  // annotation space to the target width so it lines up at any output size.
   function flatten(imageDataUrl, anns, opts) {
     opts = opts || {};
     return new Promise(function (resolve, reject) {
@@ -137,20 +145,14 @@ var MarkupCanvas = (function () {
     });
   }
 
-  // ── Drawing ─────────────────────────────────────────────────────────────────
+  // ── Drawing ───────────────────────────────────────────────────────────────
 
   function redraw(preview) {
     if (!ctx || !canvas) return;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     if (bgImage) ctx.drawImage(bgImage, 0, 0, canvas.width, canvas.height);
     annotations.forEach(function (a) { drawAnnotationOn(ctx, a); });
-
-    if (preview) {
-      // Live drag preview — don't churn the badge DOM every frame.
-      drawPreviewOn(ctx, preview);
-    } else {
-      renderBadges();
-    }
+    if (preview) drawPreviewOn(ctx, preview);
   }
 
   function drawAnnotationOn(c, a) {
@@ -186,8 +188,6 @@ var MarkupCanvas = (function () {
       c.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
       c.stroke();
     } else {
-      // Fallback: build the ellipse path under a scale transform, then stroke
-      // after restore so the line width stays uniform.
       c.save();
       c.beginPath();
       c.translate(cx, cy);
@@ -238,70 +238,7 @@ var MarkupCanvas = (function () {
     c.textBaseline = 'alphabetic';
   }
 
-  // ── Delete badges (DOM overlay) ──────────────────────────────────────────────
-
-  function anchorFor(a) {
-    if (a.type === 'rect' || a.type === 'circle') {
-      return { x: Math.max(a.x, a.x + a.w), y: Math.min(a.y, a.y + a.h) };
-    }
-    if (a.type === 'arrow') return { x: a.x2, y: a.y2 };
-    if (a.type === 'pin')   return { x: a.x + 11, y: a.y - 11 };
-    return { x: a.x || 0, y: a.y || 0 };
-  }
-
-  // Canvas-internal → display px, relative to the canvas top-left (== badge
-  // layer top-left, since the layer is inset:0 over the canvas wrapper).
-  function toDisplay(cx, cy) {
-    var rect = canvas.getBoundingClientRect();
-    var sx = rect.width  / canvas.width;
-    var sy = rect.height / canvas.height;
-    return { x: cx * sx, y: cy * sy };
-  }
-
-  function renderBadges() {
-    if (!badgeLayer || !canvas) return;
-    badgeLayer.innerHTML = '';
-    annotations.forEach(function (a, i) {
-      var anc = anchorFor(a);
-      var d   = toDisplay(anc.x, anc.y);
-      var b   = document.createElement('button');
-      b.type      = 'button';
-      b.className = 'sp-del-badge';
-      b.setAttribute('data-idx', i);
-      b.setAttribute('aria-label', 'Delete annotation ' + (i + 1));
-      b.textContent = '×';
-      b.style.left = d.x + 'px';
-      b.style.top  = d.y + 'px';
-      badgeLayer.appendChild(b);
-    });
-  }
-
-  function onBadgeClick(e) {
-    var btn = e.target && e.target.closest ? e.target.closest('.sp-del-badge') : null;
-    if (!btn) return;
-    e.preventDefault();
-    e.stopPropagation();
-    removeAnnotationAt(parseInt(btn.getAttribute('data-idx'), 10));
-  }
-
-  function removeAnnotationAt(i) {
-    if (isNaN(i) || i < 0 || i >= annotations.length) return;
-    annotations.splice(i, 1);
-    pinSeq = annotations.reduce(function (m, a) {
-      return a.type === 'pin' ? Math.max(m, a.num) : m;
-    }, 0);
-    redraw();
-  }
-
-  function onResize() {
-    if (resizeRAF) return;
-    resizeRAF = requestAnimationFrame(function () {
-      resizeRAF = null;
-      renderBadges();
-    });
-  }
-
-  // ── Mouse events ──────────────────────────────────────────────────────────────
+  // ── Mouse events ─────────────────────────────────────────────────────────────
 
   function onMouseDown(e) {
     if (DRAG_TOOLS[currentTool]) {
@@ -320,18 +257,27 @@ var MarkupCanvas = (function () {
     isDrawing = false;
     if (DRAG_TOOLS[currentTool] && dragStart) {
       var ann = commitDrag(currentTool, dragStart, canvasPos(e));
-      if (ann) annotations.push(ann);
+      if (ann) {
+        annSeq++;
+        ann.num     = annSeq;
+        ann.comment = '';
+        annotations.push(ann);
+        redraw();
+        // Comment is required — the prompt will remove the annotation if left empty.
+        showCommentInput(e, ann);
+      } else {
+        redraw(); // clear the preview stroke
+      }
       dragStart = null;
-      redraw();
     }
   }
 
   function onClick(e) {
-    if (DRAG_TOOLS[currentTool]) return; // handled by mousedown/up
+    if (DRAG_TOOLS[currentTool]) return;
     if (currentTool === 'pin') {
       var pos = canvasPos(e);
-      pinSeq++;
-      var pin = { type: 'pin', x: pos.x, y: pos.y, num: pinSeq, comment: '' };
+      annSeq++;
+      var pin = { type: 'pin', x: pos.x, y: pos.y, num: annSeq, comment: '' };
       annotations.push(pin);
       redraw();
       showCommentInput(e, pin);
@@ -360,7 +306,7 @@ var MarkupCanvas = (function () {
     return null;
   }
 
-  // ── Touch events (thin wrappers) ──────────────────────────────────────────────
+  // ── Touch events (thin wrappers) ─────────────────────────────────────────────
 
   function onTouchStart(e) {
     e.preventDefault();
@@ -383,16 +329,18 @@ var MarkupCanvas = (function () {
     }
   }
 
-  // ── Pin comment input overlay ────────────────────────────────────────────────
+  // ── Annotation comment input ──────────────────────────────────────────────────
+  // Comment is REQUIRED. If the user dismisses with an empty value the annotation
+  // is removed so no uncommented marks can be saved.
 
-  function showCommentInput(originEvent, pinAnn) {
+  function showCommentInput(originEvent, ann) {
     dismissTextInput();
 
     var input         = document.createElement('input');
     input.type        = 'text';
     input.className   = 'sp-text-input';
-    input.placeholder = 'Add a comment, Enter to save';
-    input.value       = pinAnn.comment || '';
+    input.placeholder = 'Describe this annotation (required)';
+    input.value       = ann.comment || '';
     input.style.left  = originEvent.clientX + 'px';
     input.style.top   = (originEvent.clientY - 2) + 'px';
     document.body.appendChild(input);
@@ -403,15 +351,30 @@ var MarkupCanvas = (function () {
     function finish(save) {
       if (committed) return;
       committed = true;
-      if (save) pinAnn.comment = input.value.trim();
+      var text = save ? input.value.trim() : '';
       input.removeEventListener('keydown', onKey);
       input.removeEventListener('blur', onBlur);
       if (input.parentNode) input.parentNode.removeChild(input);
       if (activeTextInput === input) activeTextInput = null;
+
+      if (text) {
+        ann.comment = text;
+      } else {
+        // No comment provided — remove the annotation entirely.
+        var idx = annotations.indexOf(ann);
+        if (idx !== -1) {
+          annotations.splice(idx, 1);
+          annSeq = annotations.reduce(function (m, a) {
+            return a.num ? Math.max(m, a.num) : m;
+          }, 0);
+        }
+      }
       redraw();
+      if (onchange) onchange(annotations.map(cloneAnn));
     }
+
     function onKey(ev) {
-      if (ev.key === 'Enter')  { ev.preventDefault(); finish(true); }
+      if (ev.key === 'Enter')       { ev.preventDefault(); finish(true); }
       else if (ev.key === 'Escape') { ev.preventDefault(); finish(false); }
     }
     function onBlur() { finish(true); }
@@ -447,11 +410,13 @@ var MarkupCanvas = (function () {
   }
 
   return {
-    init: init,
-    setTool: setTool,
-    getDataUrl: getDataUrl,
-    getState: getState,
-    flatten: flatten,
-    destroy: destroy,
+    init:                 init,
+    setTool:              setTool,
+    getDataUrl:           getDataUrl,
+    getState:             getState,
+    removeAnnotationAt:   removeAnnotationAt,
+    editAnnotationComment: editAnnotationComment,
+    flatten:              flatten,
+    destroy:              destroy,
   };
 }());
