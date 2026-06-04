@@ -70,40 +70,34 @@
     var vpW     = window.innerWidth;
     var vpH     = window.innerHeight;
     var docEl   = document.documentElement;
-    var fullW   = docEl.scrollWidth;
-    var fullH   = docEl.scrollHeight;
 
-    // Render the ENTIRE page at a known 1:1 scale anchored to the document
-    // origin, then crop out the current viewport ourselves. This avoids the
-    // finicky x/y/scrollX/scrollY crop semantics in html2canvas (which were
-    // capturing the wrong region):
-    //   - scale: 1        → output is in CSS pixels, so crop coords need no
-    //                        devicePixelRatio multiplication
-    //   - scrollX/Y: 0    → elements render at their absolute document
-    //                        coordinates (no scroll offset), so canvas (0,0)
-    //                        maps to document (0,0)
-    //   - windowWidth/Height set to the full page so nothing below the fold
-    //                        is clipped during the clone render
+    // Use html2canvas DEFAULT options. Defaults reliably render the full page
+    // anchored at the document origin (0,0) — earlier builds that overrode
+    // scale/scrollX/scrollY/windowHeight either cropped the wrong region or
+    // produced a too-short canvas (blank captures once scrolled).
+    //
+    // The default output is at devicePixelRatio scale (e.g. 2 on retina), so
+    // we measure the actual scale from the canvas and multiply the crop
+    // rectangle by it. This is density-agnostic and crops exactly the region
+    // the user is looking at, regardless of scroll position.
     return html2canvas(docEl, {
-      useCORS:      true,
-      allowTaint:   false,
-      logging:      false,
-      scale:        1,
-      scrollX:      0,
-      scrollY:      0,
-      windowWidth:  fullW,
-      windowHeight: fullH,
+      useCORS:    true,
+      allowTaint: false,
+      logging:    false,
       ignoreElements: function (el) {
         return el === triggerBtn || el === sessionBarEl;
       },
     }).then(function (fullCanvas) {
-      // Crop the viewport region in document (CSS-pixel) coordinates.
+      var scale = fullCanvas.width / (docEl.scrollWidth || vpW) || 1;
+      var sx = Math.round(scrollX * scale);
+      var sy = Math.round(scrollY * scale);
+      var sw = Math.round(vpW * scale);
+      var sh = Math.round(vpH * scale);
+
       var crop = document.createElement('canvas');
-      crop.width  = vpW;
-      crop.height = vpH;
-      crop.getContext('2d').drawImage(
-        fullCanvas, scrollX, scrollY, vpW, vpH, 0, 0, vpW, vpH
-      );
+      crop.width  = sw;
+      crop.height = sh;
+      crop.getContext('2d').drawImage(fullCanvas, sx, sy, sw, sh, 0, 0, sw, sh);
       // JPEG at 0.85 keeps payload well under the portal's 4 MB limit
       return crop.toDataURL('image/jpeg', 0.85);
     });
