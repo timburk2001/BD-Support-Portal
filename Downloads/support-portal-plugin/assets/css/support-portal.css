@@ -676,30 +676,48 @@
   opacity: 0.72;
 }
 
-/* ✕ delete badge pinned to top-right of each saved sidebar thumbnail */
-.sp-thumb-mini-del {
-  position: absolute;
-  top: -7px;
-  right: -7px;
-  width: 17px;
-  height: 17px;
-  background: #ef4444;
-  color: #fff;
-  border: 2px solid #fff;
-  border-radius: 50%;
-  font-size: 11px;
-  font-family: inherit;
-  line-height: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  padding: 0;
-  z-index: 3;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+/* ✕ delete badge pinned to top-right of each saved sidebar thumbnail.
+   Every property is !important + reset because client themes (e.g. TenWeb's
+   page builder) ship aggressive `button {}` rules that otherwise turn this
+   into a big themed button. This widget must look identical on any theme. */
+.sp-thumb-interactive .sp-thumb-mini-del {
+  position: absolute !important;
+  top: -6px !important;
+  right: -6px !important;
+  width: 18px !important;
+  height: 18px !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  max-width: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  background: #fff !important;
+  color: #ef4444 !important;
+  border: 1px solid #ef4444 !important;
+  border-radius: 50% !important;
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  line-height: 1 !important;
+  letter-spacing: 0 !important;
+  text-shadow: none !important;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  cursor: pointer !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25) !important;
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  box-sizing: border-box !important;
+  z-index: 3 !important;
+  transition: background 0.12s, color 0.12s !important;
 }
 
-.sp-thumb-mini-del:hover { background: #dc2626; }
+.sp-thumb-interactive .sp-thumb-mini-del:hover {
+  background: #ef4444 !important;
+  color: #fff !important;
+  border-color: #ef4444 !important;
+}
 
 /* ── Submit-ready panel (replaces the dark full-screen review panel) ─────── */
 
