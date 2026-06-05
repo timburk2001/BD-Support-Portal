@@ -10,6 +10,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { RoleToggle } from './role-toggle'
+import { DeleteUserButton } from './delete-user-button'
 import { formatDate } from '@/lib/format'
 
 export default async function AdminUsersPage() {
@@ -93,10 +94,16 @@ export default async function AdminUsersPage() {
                     {isMe ? (
                       <span className="text-xs text-muted-foreground">—</span>
                     ) : (
-                      <RoleToggle
-                        userId={profile.id}
-                        currentRole={profile.role as 'admin' | 'client'}
-                      />
+                      <div className="flex items-center justify-end gap-2">
+                        <RoleToggle
+                          userId={profile.id}
+                          currentRole={profile.role as 'admin' | 'client'}
+                        />
+                        <DeleteUserButton
+                          userId={profile.id}
+                          label={profile.full_name || profile.email}
+                        />
+                      </div>
                     )}
                   </TableCell>
                 </TableRow>
