@@ -89,6 +89,16 @@ class Support_Portal_Ingest {
 				isset( $body['annotated_screenshot'] ) ? 'yes (' . strlen( $body['annotated_screenshot'] ) . ' chars)' : 'no'
 			) );
 
+			// ── 3b. Decode reply_to_email (plugin base64-encodes it to avoid
+			//        host WAF rules that block multiple email addresses in POST body) ──
+			if ( ! empty( $body['reply_to_email'] ) ) {
+				$decoded = base64_decode( $body['reply_to_email'], /* strict= */ true );
+				if ( false !== $decoded && filter_var( $decoded, FILTER_VALIDATE_EMAIL ) ) {
+					$body['reply_to_email'] = $decoded;
+					error_log( '[SupportPortal] decoded reply_to_email from base64' );
+				}
+			}
+
 			// ── 4. Forward to portal API ────────────────────────────────────────
 			$encoded = wp_json_encode( $body );
 			if ( false === $encoded ) {

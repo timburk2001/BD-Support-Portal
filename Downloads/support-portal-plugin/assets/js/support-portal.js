@@ -248,6 +248,9 @@
       if (toolsBar) toolsBar.style.display = 'none';
       var titleEl = overlay.querySelector('.sp-sidebar-title');
       if (titleEl) titleEl.textContent = 'Review & submit';
+      // Relabel secondary button: in review mode it goes back to capture, not "another issue".
+      var addBtn = document.getElementById('sp-add-issue');
+      if (addBtn) addBtn.textContent = '+ Capture another issue';
     }
 
     prefillUser();
@@ -448,8 +451,10 @@
     editingIndex = null;
     MarkupCanvas.destroy();
     persistSession();
-    softCloseOverlay();
-    showToast('Screenshot saved — go to your next issue (other pages are fine).', 'success');
+    // Open the review screen immediately so the user can edit/delete any saved
+    // screenshot. From there, "+ Capture another issue" returns to the session bar.
+    submittingSession = true;
+    openOverlay(null);
   }
 
   // Submit mode "+ Report another issue" — nothing live to save, just resume.
@@ -762,7 +767,10 @@
         description:           finalDescription,
         submitter_name:        name,
         submitter_email:       email,
-        reply_to_email:        replyTo,
+        // Base64-encode reply_to_email so host-level WAF rules that block multiple
+        // email addresses in a POST body do not kill the request. The PHP proxy
+        // decodes it before forwarding to the portal API.
+        reply_to_email:        replyTo ? btoa(replyTo) : '',
         page_url:              window.location.href,
         browser:               navigator.userAgent,
         device:                navigator.userAgent,
@@ -788,7 +796,14 @@
     }).catch(function (err) {
       submitBtn.disabled    = false;
       submitBtn.textContent = 'Submit report';
-      showError(err.message || 'Submission failed. Please try again.');
+      var msg = err && err.message ? err.message : 'Submission failed. Please try again.';
+      // TypeError: Failed to fetch = network-level block (WAF, offline, CSP, etc.)
+      // It never reached the server — no screenshot was lost.
+      if (msg === 'Failed to fetch' || (err instanceof TypeError && msg.indexOf('fetch') !== -1)) {
+        msg = 'Could not reach the server. Please check your connection and try again. ' +
+              'If the problem continues, contact support.';
+      }
+      showError(msg);
     });
   }
 

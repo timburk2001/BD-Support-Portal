@@ -230,7 +230,7 @@ export async function POST(request: NextRequest) {
 
   // ── 10. Notify admins + send the submitter a receipt (fire-and-forget) ──────
   // Each send is independent: one failure must never suppress the other.
-  void (async () => {
+  ;(async () => {
     const { data: site } = await admin
       .from('sites')
       .select('name')
@@ -271,7 +271,7 @@ export async function POST(request: NextRequest) {
         console.error(`[email] job ${i} failed:`, r.reason)
       }
     })
-  })()
+  })().catch((e) => console.error('[email] unexpected fire-and-forget error:', e))
 
   // ── 11. Respond with tracking + signup URLs so the plugin needn't hardcode
   //        the portal host. ───────────────────────────────────────────────────
