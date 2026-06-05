@@ -47,7 +47,7 @@ Open [http://localhost:3000](http://localhost:3000).
 | `RESEND_API_KEY` | ✅ | Resend API key for transactional email |
 | `RESEND_FROM_EMAIL` | ✅ | Verified sender address in Resend |
 | `ANTHROPIC_API_KEY` | ✅ | Anthropic API key for AI features |
-| `NEXT_PUBLIC_APP_URL` | ✅ | Public app URL (e.g. `http://localhost:3000`); used for auth redirects |
+| `NEXT_PUBLIC_APP_URL` | ✅ | Public app URL — prod `https://www.burkdigital.support`, local dev `http://localhost:3000`; used for auth redirects + email links |
 
 ---
 
