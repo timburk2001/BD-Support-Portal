@@ -241,16 +241,24 @@
       wireTools();
       setActiveTool('pin');
     } else {
-      // Submit/review mode — swap canvas area for the screenshot manager.
+      // Submit mode — clean ready-state in the canvas area.
+      // Screenshots are managed directly from the sidebar thumbnail strip.
       var canvasArea = document.getElementById('sp-canvas-area');
-      if (canvasArea) { canvasArea.innerHTML = ''; canvasArea.appendChild(buildSubmitSummary()); }
+      if (canvasArea) {
+        var n = capturedScreenshots.length;
+        var ready = document.createElement('div');
+        ready.className = 'sp-submit-ready';
+        ready.innerHTML =
+          '<div class="sp-submit-ready-icon">✓</div>' +
+          '<p class="sp-submit-ready-text">' + n + ' screenshot' + (n !== 1 ? 's' : '') + ' ready</p>' +
+          '<p class="sp-submit-ready-sub">Edit or delete from the strip above ↑</p>';
+        canvasArea.innerHTML = '';
+        canvasArea.appendChild(ready);
+      }
       var toolsBar = overlay.querySelector('.sp-tools-bar');
       if (toolsBar) toolsBar.style.display = 'none';
       var titleEl = overlay.querySelector('.sp-sidebar-title');
       if (titleEl) titleEl.textContent = 'Review & submit';
-      // Relabel secondary button: in review mode it goes back to capture, not "another issue".
-      var addBtn = document.getElementById('sp-add-issue');
-      if (addBtn) addBtn.textContent = '+ Capture another issue';
     }
 
     prefillUser();
@@ -258,6 +266,16 @@
     wireSubmit();
     wireAddIssue();
     wireClose();
+
+    // Label the secondary button to match context (after wiring so the element exists).
+    var ctxAddBtn = document.getElementById('sp-add-issue');
+    if (ctxAddBtn) {
+      if (submittingSession) {
+        ctxAddBtn.textContent = '+ Capture another issue';
+      } else if (editingIndex != null) {
+        ctxAddBtn.textContent = 'Save changes';
+      }
+    }
 
     overlay.setAttribute('tabindex', '-1');
     overlay.focus();
@@ -443,7 +461,8 @@
   function saveAndReportAnother() {
     savedFormData = collectFormData();
     var entry = { image: currentRawImage, annotations: MarkupCanvas.getState().annotations };
-    if (editingIndex != null && capturedScreenshots[editingIndex]) {
+    var wasEditing = (editingIndex != null && capturedScreenshots[editingIndex] !== undefined);
+    if (wasEditing) {
       capturedScreenshots[editingIndex] = entry;
     } else {
       capturedScreenshots.push(entry);
@@ -451,10 +470,16 @@
     editingIndex = null;
     MarkupCanvas.destroy();
     persistSession();
-    // Open the review screen immediately so the user can edit/delete any saved
-    // screenshot. From there, "+ Capture another issue" returns to the session bar.
-    submittingSession = true;
-    openOverlay(null);
+    if (wasEditing) {
+      // Return to the submit/form view after editing a saved screenshot.
+      // Edit/delete remain available from the sidebar thumbnail strip.
+      submittingSession = true;
+      openOverlay(null);
+    } else {
+      // New screenshot saved — go to session bar for cross-page capture.
+      softCloseOverlay();
+      showToast('Screenshot saved.', 'success');
+    }
   }
 
   // Submit mode "+ Report another issue" — nothing live to save, just resume.
@@ -590,10 +615,13 @@
 
     strip.innerHTML = '';
     capturedScreenshots.forEach(function (entry, i) {
+      var isCurrentEdit = (i === editingIndex);
       var wrap = document.createElement('div');
-      wrap.className = 'sp-thumb-wrap';
-      if (i === editingIndex) wrap.className += ' sp-thumb-editing';
-      wrap.title = 'Screenshot ' + (i + 1);
+      wrap.className = 'sp-thumb-wrap sp-thumb-interactive' +
+                       (isCurrentEdit ? ' sp-thumb-editing' : '');
+      wrap.title = isCurrentEdit
+        ? 'Currently editing screenshot ' + (i + 1)
+        : 'Click to edit screenshot ' + (i + 1);
 
       var img = document.createElement('img');
       img.className = 'sp-thumbnail';
@@ -605,6 +633,36 @@
       label.className = 'sp-thumb-label';
       label.textContent = i + 1;
       wrap.appendChild(label);
+
+      // ✕ delete badge (top-right corner, overflows the frame)
+      var del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'sp-thumb-mini-del';
+      del.setAttribute('aria-label', 'Delete screenshot ' + (i + 1));
+      del.textContent = '×';
+      (function (idx) {
+        del.addEventListener('click', function (e) {
+          e.stopPropagation();
+          deleteScreenshot(idx);
+        });
+      })(i);
+      wrap.appendChild(del);
+
+      // Click thumbnail to switch into edit mode for that screenshot.
+      (function (idx) {
+        wrap.addEventListener('click', function () {
+          if (idx === editingIndex) return; // already editing this one
+          // Auto-save the current in-progress canvas so the capture isn't lost.
+          if (!submittingSession && currentRawImage && editingIndex == null) {
+            capturedScreenshots.push({
+              image: currentRawImage,
+              annotations: MarkupCanvas.getState().annotations,
+            });
+            persistSession();
+          }
+          editScreenshot(idx);
+        });
+      })(i);
 
       strip.appendChild(wrap);
     });

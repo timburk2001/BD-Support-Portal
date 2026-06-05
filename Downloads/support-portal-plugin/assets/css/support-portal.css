@@ -666,6 +666,81 @@
   padding: 0;
 }
 
+/* Interactive saved thumbnails in the sidebar strip — clickable to edit */
+.sp-thumb-interactive {
+  overflow: visible; /* allow delete badge to overflow the frame */
+  cursor: pointer;
+}
+
+.sp-thumb-interactive:hover .sp-thumbnail {
+  opacity: 0.72;
+}
+
+/* ✕ delete badge pinned to top-right of each saved sidebar thumbnail */
+.sp-thumb-mini-del {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  width: 17px;
+  height: 17px;
+  background: #ef4444;
+  color: #fff;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  font-size: 11px;
+  font-family: inherit;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  z-index: 3;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+.sp-thumb-mini-del:hover { background: #dc2626; }
+
+/* ── Submit-ready panel (replaces the dark full-screen review panel) ─────── */
+
+.sp-submit-ready {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 12px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+.sp-submit-ready-icon {
+  width: 52px;
+  height: 52px;
+  background: #16a34a;
+  color: #fff;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+  font-weight: 700;
+}
+
+.sp-submit-ready-text {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+  color: #f9fafb;
+  text-align: center;
+}
+
+.sp-submit-ready-sub {
+  margin: 0;
+  font-size: 13px;
+  color: #9ca3af;
+  text-align: center;
+}
+
 /* Managed (editable + deletable) thumbnails in the review screen.
    MUST come after .sp-thumb-wrap so overflow:visible wins the cascade. */
 .sp-thumb-wrap-lg {

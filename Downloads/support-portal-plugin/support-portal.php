@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Support Portal
  * Description: Adds a "Report an issue" button that captures the current page and lets visitors annotate and submit to the support portal.
- * Version:     1.0.2
+ * Version:     1.0.3
  * Author:      <agency>
  * License:     GPL-2.0+
  * License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -12,7 +12,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'SUPPORT_PORTAL_VERSION', '1.0.2' );
+define( 'SUPPORT_PORTAL_VERSION', '1.0.3' );
 define( 'SUPPORT_PORTAL_PATH', plugin_dir_path( __FILE__ ) );
 define( 'SUPPORT_PORTAL_URL', plugin_dir_url( __FILE__ ) );
 
