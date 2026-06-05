@@ -482,22 +482,6 @@
   display: block;
 }
 
-/* Managed (editable + deletable) thumbnails in the review screen */
-.sp-thumb-wrap-lg {
-  position: relative;
-  width: auto;
-  height: auto;
-  overflow: visible;
-  border: none;
-  background: none;
-  border-radius: 0;
-}
-
-.sp-thumb-wrap-lg .sp-thumb-label {
-  bottom: 6px;
-  right: 7px;
-}
-
 .sp-thumb-edit,
 .sp-thumb-delete {
   position: absolute;
@@ -680,6 +664,23 @@
   color: #1d4ed8;
   font-size: 13px;
   padding: 0;
+}
+
+/* Managed (editable + deletable) thumbnails in the review screen.
+   MUST come after .sp-thumb-wrap so overflow:visible wins the cascade. */
+.sp-thumb-wrap-lg {
+  position: relative;
+  width: auto;
+  height: auto;
+  overflow: visible;
+  border: none;
+  background: none;
+  border-radius: 0;
+}
+
+.sp-thumb-wrap-lg .sp-thumb-label {
+  bottom: 6px;
+  right: 7px;
 }
 
 /* ── Floating text-note input ────────────────────────────────────────────── */

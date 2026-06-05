@@ -229,49 +229,67 @@ export async function POST(request: NextRequest) {
   }
 
   // ── 10. Notify admins + send the submitter a receipt (fire-and-forget) ──────
-  ;(async () => {
+  // Each send is independent: one failure must never suppress the other.
+  void (async () => {
     const { data: site } = await admin
       .from('sites')
       .select('name')
       .eq('id', apiKey.site_id)
       .single()
 
-    await sendAdminNewTicketEmail({
-      ticketId: ticket.id,
-      title,
-      clientName: submitter_name ?? null,
-      clientEmail: submitter_email ?? null,
-      replyToEmail: reply_to_email,
-      siteName: (site as { name: string } | null)?.name ?? 'Unknown site',
-      method: 'visual',
-      description,
-      attachmentCount: allScreenshots.length,
-    })
+    const siteName = (site as { name: string } | null)?.name ?? 'Unknown site'
+
+    const emailJobs: Promise<void>[] = [
+      sendAdminNewTicketEmail({
+        ticketId: ticket.id,
+        title,
+        clientName: submitter_name ?? null,
+        clientEmail: submitter_email ?? null,
+        replyToEmail: reply_to_email,
+        siteName,
+        method: 'visual',
+        description,
+        attachmentCount: allScreenshots.length,
+      }),
+    ]
 
     // Anonymous submitters get a "create an account to track this" receipt.
     if (!submittedBy && (reply_to_email || submitter_email)) {
-      await sendSubmitterTicketReceiptEmail({
-        ticketId: ticket.id,
-        title,
-        submitterEmail: submitter_email,
-        replyToEmail: reply_to_email,
-      })
+      emailJobs.push(
+        sendSubmitterTicketReceiptEmail({
+          ticketId: ticket.id,
+          title,
+          submitterEmail: submitter_email,
+          replyToEmail: reply_to_email,
+        }),
+      )
     }
-  })().catch((e) => console.error('[email] notification failed:', e))
+
+    const results = await Promise.allSettled(emailJobs)
+    results.forEach((r, i) => {
+      if (r.status === 'rejected') {
+        console.error(`[email] job ${i} failed:`, r.reason)
+      }
+    })
+  })()
 
   // ── 11. Respond with tracking + signup URLs so the plugin needn't hardcode
   //        the portal host. ───────────────────────────────────────────────────
   const baseUrl = (process.env.NEXT_PUBLIC_APP_URL ?? new URL(request.url).origin).replace(/\/$/, '')
   const trackUrl = `${baseUrl}/tickets/${ticket.id}`
+
+  // Only give anonymous submitters a signup link — registered site members
+  // already have an account and shouldn't see a "Create account" CTA.
   const signupRecipient = reply_to_email ?? submitter_email
-  const signupUrl =
-    `${baseUrl}/signup?next=${encodeURIComponent(`/tickets/${ticket.id}`)}` +
-    (signupRecipient ? `&email=${encodeURIComponent(signupRecipient)}` : '')
+  const signupUrl = submittedBy
+    ? null
+    : `${baseUrl}/signup?next=${encodeURIComponent(`/tickets/${ticket.id}`)}` +
+      (signupRecipient ? `&email=${encodeURIComponent(signupRecipient)}` : '')
 
   return NextResponse.json({
     ok: true,
     ticket_id: ticket.id,
     track_url: trackUrl,
-    signup_url: signupUrl,
+    ...(signupUrl ? { signup_url: signupUrl } : {}),
   })
 }
